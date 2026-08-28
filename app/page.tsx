@@ -455,7 +455,7 @@ function ResultsModal({
           : null,
         model: v?.model || draft.model,
         maxTokens: draft.maxTokens,
-        actualTokens: v?.completion_tokens ?? null,
+        actualTokens: v?.total_tokens ?? null,
         costUsd: v?.cost_usd ?? null,
         durationMs: v?.duration_ms ?? null,
         failed: v?.failed ?? false,
@@ -470,7 +470,7 @@ function ResultsModal({
         output: a ? (a.failed ? `Failed: ${a.error_message}` : a.output) : null,
         model: a?.model || draft.model,
         maxTokens: draft.maxTokens,
-        actualTokens: a?.completion_tokens ?? null,
+        actualTokens: a?.total_tokens ?? null,
         costUsd: a?.cost_usd ?? null,
         durationMs: a?.duration_ms ?? null,
         failed: a?.failed ?? false,
@@ -677,7 +677,7 @@ export default function ConsolePage() {
           nextDrafts[role] = {
             model: modelsJson.defaultModel ?? modelsJson.models?.[0]?.id ?? "",
             systemPrompt: "",
-            maxTokens: ADVOCATE_ROLES.includes(role) ? 1200 : 600,
+            maxTokens: ADVOCATE_ROLES.includes(role) ? 1200 : 1600,
             name: "",
           };
         }
@@ -1155,7 +1155,7 @@ export default function ConsolePage() {
               <span className="info-tooltip-text">
                 Tokens are the unit the model counts internally — roughly 1.5 tokens per word.
                 <br /><br />
-                Default: advocates 1,200 tokens ≈ 800 words, judges 600 tokens ≈ 400 words.
+                Default: advocates 1,200 tokens ≈ 800 words, judges 1,600 tokens ≈ 1,067 words.
               </span>
             </span>
           </label>

@@ -28,7 +28,7 @@ export function stanceOf(role: AgentRole): "defense" | "prosecution" | null {
 // call-time (orchestrator), regardless of what the browser sends. §11.
 export const MAX_TOKENS_CAP: Record<"advocate" | "judge", number> = {
   advocate: 1300,
-  judge: 700,
+  judge: 2000,
 };
 
 export function maxTokensCapFor(role: AgentRole): number {
