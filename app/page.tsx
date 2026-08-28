@@ -174,6 +174,7 @@ interface AdvocateOutputRow {
   output: string | null;
   failed: boolean;
   error_message: string | null;
+  completion_tokens: number | null;
   total_tokens: number | null;
   cost_usd: number | null;
   duration_ms: number | null;
@@ -188,6 +189,7 @@ interface VerdictRow {
   reasons: string[] | null;
   failed: boolean;
   error_message: string | null;
+  completion_tokens: number | null;
   total_tokens: number | null;
   cost_usd: number | null;
   duration_ms: number | null;
@@ -453,7 +455,7 @@ function ResultsModal({
           : null,
         model: v?.model || draft.model,
         maxTokens: draft.maxTokens,
-        actualTokens: v?.total_tokens ?? null,
+        actualTokens: v?.completion_tokens ?? null,
         costUsd: v?.cost_usd ?? null,
         durationMs: v?.duration_ms ?? null,
         failed: v?.failed ?? false,
@@ -468,7 +470,7 @@ function ResultsModal({
         output: a ? (a.failed ? `Failed: ${a.error_message}` : a.output) : null,
         model: a?.model || draft.model,
         maxTokens: draft.maxTokens,
-        actualTokens: a?.total_tokens ?? null,
+        actualTokens: a?.completion_tokens ?? null,
         costUsd: a?.cost_usd ?? null,
         durationMs: a?.duration_ms ?? null,
         failed: a?.failed ?? false,
