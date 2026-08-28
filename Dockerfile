@@ -4,8 +4,10 @@ FROM node:20.18.0-alpine AS base
 # ---- Install dependencies ----
 FROM base AS deps
 WORKDIR /app
+RUN npm install -g npm@latest
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund \
+    && test -f node_modules/.bin/next || (echo "next binary missing after install" && exit 1)
 
 # ---- Build the app ----
 FROM base AS builder
