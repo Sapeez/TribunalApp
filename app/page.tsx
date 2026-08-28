@@ -670,13 +670,21 @@ export default function ConsolePage() {
         const casesJson = await casesRes.json();
 
         const nextDrafts = {} as Record<AgentRole, AgentDraft>;
+        // Initialize all roles with safe defaults first so drafts[role] is never undefined
+        for (const role of ALL_ROLES) {
+          nextDrafts[role] = {
+            model: modelsJson.defaultModel ?? modelsJson.models?.[0]?.id ?? "",
+            systemPrompt: "",
+            maxTokens: ADVOCATE_ROLES.includes(role) ? 1200 : 600,
+            name: "",
+          };
+        }
         for (const row of configJson.agents ?? []) {
           const roleKey = row.role as AgentRole;
+          if (!ALL_ROLES.includes(roleKey)) continue;
           nextDrafts[roleKey] = {
+            ...nextDrafts[roleKey],
             model: row.model,
-            systemPrompt: "",
-            maxTokens: ADVOCATE_ROLES.includes(roleKey) ? 1200 : 600,
-            name: "",
           };
         }
         setDrafts(nextDrafts);
