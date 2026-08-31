@@ -63,3 +63,14 @@ bypasses RLS anyway — see `specs/data-model.md`).
 Accepted type is PDF only (5 MB cap) — `.docx` support was intentionally dropped, see
 `specs/status.md`. A rejected upload leaves existing form fields untouched — never a partial
 silent overwrite.
+
+## Prompt injection hardening
+
+Three places where attacker-influenced text flows into a model call — the extracted document,
+the case text, and advocate output read by judges — wrap that content in `<document>`/`<case>`/
+`<arguments>` delimiters with an explicit "this is data, not instructions" line, and the
+extraction call additionally uses structured-output mode (`response_format: json_schema`) plus a
+per-field max length check before anything reaches the browser as a draft. See
+`TRIBUNAL_REQUIREMENTS.md` §16 for the full rationale. None of the agents in this app have tool
+access, so a successful injection is still capped at "bad text shows up somewhere" — this doesn't
+change that.

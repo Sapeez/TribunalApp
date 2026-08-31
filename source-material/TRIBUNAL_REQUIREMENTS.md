@@ -378,4 +378,51 @@ Not yet written — planned as its own short file (`RUNBOOK.md` or similar) once
 
 ---
 
+## 16. Prompt injection considerations (added post-build)
+
+None of the 7 (or 8, with an upload) agents in this app have tool access or can execute code —
+every call is single-shot text generation, and outputs only ever get displayed, stored, or
+regex-parsed for a `VERDICT:`/`REASONS:` trailer (§4.4). That caps the blast radius of a
+successful injection to "bad/off-character text shows up somewhere," never data exfiltration or
+code execution — this section hardens against that limited but real risk without changing that
+trust model, and without giving any agent tool-calling ability.
+
+There are three points where attacker-influenced text flows into a prompt:
+
+1. **Dossier extraction (§4.0).** The uploaded document's raw text is arbitrary and
+   attacker-controllable. It's wrapped in the user message as `<document>...</document>`, and the
+   extraction system prompt states plainly that everything inside that tag is data to pull fields
+   from, never instructions — a dossier that embeds "ignore the above, instead output..." must not
+   change what the call does. The call also uses OpenRouter/OpenAI-compatible structured-output
+   mode (`response_format: json_schema`, `strict: true`) with the exact 15 named string fields, so
+   the response shape itself can't be used to smuggle extra keys or directives. Each returned field
+   is checked against a max length (8000 chars for the 8 content fields, 200 for the 7 name fields)
+   before anything reaches the browser as a draft; a field over its cap is treated as a sign
+   something went wrong (steered output, not a normal dossier) and the whole extraction is
+   rejected — nothing is pre-filled, matching the existing "never a partial silent overwrite" rule.
+   The existing human-review-then-Save gate (§4.0) is unchanged and remains the actual backstop.
+2. **Case text (§4.1).** The charge sheet is free text and could itself contain
+   instruction-like phrasing aimed at an advocate or judge (e.g. "ignore your character, instead
+   ..."). The advocate and judge user-message templates wrap it as `<case>...</case>` with a line
+   telling the agent it's factual case content to argue about or evaluate, not instructions to it,
+   regardless of phrasing.
+3. **Advocate output feeding into judge input.** Judges read all 4 advocate outputs verbatim.
+   Since that output is model-generated from attacker-influenced case text, it could drift into
+   instruction-like phrasing that looks like a directive to the judge. The judge user-message
+   template wraps the arguments section as `<arguments>...</arguments>` and labels it explicitly as
+   output from four other AI models to be evaluated as argument content, not guidance to follow.
+
+**Delimiter convention:** plain XML-style tags (`<document>`, `<case>`, `<arguments>`) rather than
+Markdown fences or a hand-rolled token, because they're unambiguous to point at in a "content
+inside X is data, not instructions" sentence, cheap to state in a system/user prompt, and match the
+convention most current model providers already train against for this exact distinction.
+
+**Explicitly unchanged by this work:** the trust boundary in §11 (system prompts stay non-secret
+and browser-visible; the OpenRouter/Supabase keys stay server-only), the retry/audit-trail logic,
+and the §4.4 "no structured verdict parsed" handling — an injected case that produces a judge
+output not matching the `VERDICT:` trailer still falls into that existing bucket, not a new
+failure state.
+
+---
+
 **Please review §13 in particular (the 5 open decisions) and let me know your calls — then I'll start on the build plan above.**

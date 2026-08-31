@@ -50,6 +50,11 @@ export interface CallModelParams {
    * TRIBUNAL_REQUIREMENTS.md §14). */
   userMessage: string;
   maxTokens: number;
+  /** OpenAI-compatible `response_format`, e.g. a JSON-schema object for the
+   * extraction call (§16) — constrains the response shape so untrusted
+   * document content can't smuggle extra fields/directives into the output.
+   * Omitted for the advocate/judge calls, which return free-form text. */
+  responseFormat?: OpenAI.Chat.ChatCompletionCreateParams["response_format"];
 }
 
 export interface CallModelResult {
@@ -79,6 +84,7 @@ export async function callModel(params: CallModelParams): Promise<CallModelResul
       { role: "system", content: params.systemPrompt },
       { role: "user", content: params.userMessage },
     ],
+    ...(params.responseFormat ? { response_format: params.responseFormat } : {}),
     // Ask OpenRouter to include real usage data on the response —
     // never estimate tokens/cost client-side (see TRIBUNAL_REQUIREMENTS.md §5).
     // Some curated-pool models default to spending completion tokens on hidden
