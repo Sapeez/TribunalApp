@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import JSZip from "jszip";
 import { CASE_TEXT as SEED_CASE_TEXT, AGENT_SYSTEM_PROMPTS } from "@/prompts/seed-content";
 import { ADVOCATE_ROLES, JUDGE_ROLES, ALL_ROLES, type AgentRole } from "@/lib/constants";
+import { agentFailedFallback, agentRetryingFallback, agentRetryMessage, RUN_ALREADY_ACTIVE, type ErrorCode } from "@/lib/toastMessages";
 
 type Stance = "defense" | "prosecution" | "judge";
 
@@ -151,7 +152,7 @@ function ROLE_ICON({ stance }: { stance: Stance }) {
 
 interface ToastItem {
   id: string;
-  type: "generating" | "success" | "error";
+  type: "generating" | "success" | "error" | "retrying";
   message: string;
 }
 
@@ -207,6 +208,7 @@ interface CaseDetail {
   };
   advocateOutputs: AdvocateOutputRow[];
   verdicts: VerdictRow[];
+  retrying?: Partial<Record<AgentRole, { attempt: number; maxAttempts: number; code: ErrorCode }>>;
 }
 
 interface CaseSummary {
@@ -327,13 +329,14 @@ function ToastContainer({
         <div key={t.id} className={`toast toast-${t.type}`}>
           <div className="toast-icon">
             {t.type === "generating" && <span className="toast-spinner" />}
+            {t.type === "retrying" && <span className="toast-spinner toast-spinner-retrying" />}
             {t.type === "success" && <CheckIcon />}
             {t.type === "error" && <CloseIcon size={14} />}
           </div>
           <div className="toast-body">
             {t.type === "success" ? (
               <span>
-                Generation completed.{" "}
+                {t.message}{" "}
                 <button className="toast-link" onClick={onSeeResults}>
                   See results
                 </button>
@@ -342,7 +345,7 @@ function ToastContainer({
               <span>{t.message}</span>
             )}
           </div>
-          {t.type === "error" && (
+          {(t.type === "error" || t.type === "retrying") && (
             <button className="toast-close" onClick={() => onDismiss(t.id)} aria-label="Dismiss">
               <CloseIcon size={12} />
             </button>
@@ -598,6 +601,29 @@ function ResultsModal({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+type RoleStatus = "idle" | "pending" | "running" | "retrying" | "done" | "failed" | "excluded";
+
+// Pure so it can be called both from the render path (closing over `activeCase`
+// state) and from pollRun's tick (with the just-fetched detail, before that
+// state update has committed) to detect status transitions for live toasts.
+function deriveRoleStatus(c: CaseDetail | null, role: AgentRole): RoleStatus {
+  if (!c) return "idle";
+  const isJudge = JUDGE_ROLES.includes(role);
+  if (isJudge) {
+    const row = c.verdicts.find((v) => v.role === role);
+    if (row) return row.failed ? "failed" : "done";
+    if (c.case.status !== "running") return "excluded";
+    if (c.retrying?.[role]) return "retrying";
+    const stage1Done = ADVOCATE_ROLES.every((r) => c.advocateOutputs.some((a) => a.role === r));
+    return stage1Done ? "running" : "pending";
+  }
+  const row = c.advocateOutputs.find((a) => a.role === role);
+  if (row) return row.failed ? "failed" : "done";
+  if (c.case.status !== "running") return "excluded";
+  if (c.retrying?.[role]) return "retrying";
+  return "running";
+}
+
 export default function ConsolePage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -614,7 +640,18 @@ export default function ConsolePage() {
   const [activeCase, setActiveCase] = useState<CaseDetail | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollStartRef = useRef<number | null>(null);
+  // Per-role status from the previous poll tick, so live per-role toasts
+  // (retrying, failed) fire once on transition rather than every 1.5s.
+  const prevRoleStatusRef = useRef<Partial<Record<AgentRole, RoleStatus>>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Synchronous double-submit guard: `running` (React state) only takes
+  // effect on the next render, which is fast but not instant — this ref is
+  // checked-and-set in the same tick as the click, so even a scripted/rapid
+  // double-fire can't start two runs before the state update commits.
+  const isSubmittingRef = useRef(false);
+  // Monotonic counter so a stale PUT /api/agent-config response from an
+  // earlier "single model" apply can't clobber a newer selection.
+  const modelApplyRef = useRef(0);
 
   const [pastRuns, setPastRuns] = useState<CaseSummary[]>([]);
   const [pastRunsOffset, setPastRunsOffset] = useState(0);
@@ -758,6 +795,11 @@ export default function ConsolePage() {
   }
 
   async function handleSingleModelChange(modelId: string) {
+    // Stale-response guard: if the dropdown changes again before this batch
+    // of 7 PUTs lands, a late response here must not clobber the newer
+    // selection's state.
+    const requestId = ++modelApplyRef.current;
+
     setModelMode("single");
     setSingleModel(modelId);
     if (!drafts) return;
@@ -776,6 +818,7 @@ export default function ConsolePage() {
           });
           if (!res.ok) throw new Error(`Failed to apply model to ${role}`);
           const body = await res.json();
+          if (requestId !== modelApplyRef.current) return; // a newer call superseded this one
           setDrafts((prev) => {
             if (!prev) return prev;
             return {
@@ -791,7 +834,9 @@ export default function ConsolePage() {
         })
       );
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err));
+      if (requestId === modelApplyRef.current) {
+        setSaveError(err instanceof Error ? err.message : String(err));
+      }
     }
   }
 
@@ -858,6 +903,12 @@ export default function ConsolePage() {
 
   async function handleRun() {
     if (!drafts) return;
+    if (isSubmittingRef.current) {
+      const id = addToast({ type: "error", message: RUN_ALREADY_ACTIVE });
+      setTimeout(() => removeToast(id), 5000);
+      return;
+    }
+    isSubmittingRef.current = true;
     setRunError(null);
     setRunTimedOut(false);
     setRunning(true);
@@ -894,6 +945,7 @@ export default function ConsolePage() {
       const errMsg = err instanceof Error ? err.message : String(err);
       setRunError(errMsg);
       setRunning(false);
+      isSubmittingRef.current = false;
       const errToastId = addToast({ type: "error", message: errMsg });
       setTimeout(() => removeToast(errToastId), 8000);
     }
@@ -902,6 +954,7 @@ export default function ConsolePage() {
   function pollRun(caseId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
     pollStartRef.current = Date.now();
+    prevRoleStatusRef.current = {};
 
     const tick = async () => {
       if (pollStartRef.current && Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
@@ -913,26 +966,65 @@ export default function ConsolePage() {
         if (!res.ok) return;
         const detail: CaseDetail = await res.json();
         setActiveCase(detail);
+
+        // Per-role live toasts: fire once on transition into "retrying" or
+        // "failed", not on every poll tick — see docs/toast-message-copy.md
+        // (name the specific role, two-part "what happened, what's next").
+        for (const role of ALL_ROLES) {
+          const prevStatus = prevRoleStatusRef.current[role];
+          const nextStatus = deriveRoleStatus(detail, role);
+          prevRoleStatusRef.current[role] = nextStatus;
+          if (nextStatus === prevStatus) continue;
+
+          if (nextStatus === "retrying") {
+            const info = detail.retrying?.[role];
+            const label = roleLabel(role, drafts?.[role]?.name);
+            const message = info
+              ? agentRetryMessage({ roleLabel: label, code: info.code, nextAttempt: info.attempt, maxAttempts: info.maxAttempts })
+              : agentRetryingFallback(label);
+            const id = addToast({ type: "retrying", message });
+            setTimeout(() => removeToast(id), 6000);
+          } else if (nextStatus === "failed") {
+            const isJudge = JUDGE_ROLES.includes(role);
+            const row = isJudge ? detail.verdicts.find((v) => v.role === role) : detail.advocateOutputs.find((a) => a.role === role);
+            const message = row?.error_message ?? agentFailedFallback(roleLabel(role, drafts?.[role]?.name));
+            const id = addToast({ type: "error", message });
+            setTimeout(() => removeToast(id), 8000);
+          }
+        }
+
         if (detail.case.status !== "running") {
           if (pollRef.current) clearInterval(pollRef.current);
           setRunning(false);
+          isSubmittingRef.current = false;
           setRunTimedOut(false);
 
           // Dismiss generating toast
           dismissGeneratingToast();
 
-          // Show success or failure toast
-          if (detail.case.status === "failed") {
-            const failedAdvocate = detail.advocateOutputs.find((a) => a.failed);
-            const failedVerdict = detail.verdicts.find((v) => v.failed);
-            const reason =
-              failedAdvocate?.error_message ||
-              failedVerdict?.error_message ||
-              "Generation failed. Please try again.";
-            const errToastId = addToast({ type: "error", message: reason });
-            setTimeout(() => removeToast(errToastId), 8000);
+          if (detail.case.status === "failed" || detail.case.status === "partial-failure") {
+            const anyFailedRowLanded = [...detail.advocateOutputs, ...detail.verdicts].some((r) => r.failed);
+            if (detail.case.status === "partial-failure") {
+              // Per-role failures already toasted above as they landed —
+              // this is just the run-level summary. Denominator is the
+              // number of calls actually made, not a hardcoded 7 — a judge
+              // with an empty prompt is silently excluded from a run (§4.1),
+              // so fewer than 7 calls can legitimately happen.
+              const totalCalls = detail.advocateOutputs.length + detail.verdicts.length;
+              const failedCount = [...detail.advocateOutputs, ...detail.verdicts].filter((r) => r.failed).length;
+              setCompletedCase(detail);
+              const id = addToast({ type: "success", message: `Generation completed — ${failedCount} of ${totalCalls} calls failed.` });
+              setTimeout(() => removeToast(id), 10000);
+            } else if (!anyFailedRowLanded) {
+              // Edge case: every write for this run was dead-lettered (see
+              // specs/error-handling.md) — no per-role row ever landed to
+              // toast individually, so fall back to a generic message.
+              const id = addToast({ type: "error", message: "This run failed and nothing could be saved. Check the server logs." });
+              setTimeout(() => removeToast(id), 8000);
+            }
+            // else: fully "failed" with landed rows — each was already toasted above.
           } else {
-            // complete or partial-failure — store completed case and show success toast
+            // complete — store completed case and show success toast
             setCompletedCase(detail);
             const successToastId = addToast({ type: "success", message: "Generation completed." });
             setTimeout(() => removeToast(successToastId), 10000);
@@ -1007,10 +1099,9 @@ export default function ConsolePage() {
       const res = await fetch("/api/extract", { method: "POST", body: formData });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        let msg = body.error ?? `Upload failed (${res.status})`;
-        if (body.emptyFields?.length) msg += ` Missing: ${(body.emptyFields as string[]).join(", ")}.`;
-        if (body.rawLlmOutput) msg += ` LLM snippet: "${body.rawLlmOutput}"`;
-        throw new Error(msg);
+        // body.error is already a rule-compliant sentence (docs/toast-message-copy.md) —
+        // don't append internal field names or raw model output to it.
+        throw new Error(body.error ?? "Upload failed. Try again or enter fields manually.");
       }
 
       const fields = body.fields as Record<string, string>;
@@ -1052,20 +1143,19 @@ export default function ConsolePage() {
     }
   }
 
-  function roleStatus(role: AgentRole): "idle" | "pending" | "running" | "done" | "failed" | "excluded" {
+  function roleStatus(role: AgentRole): RoleStatus {
+    return deriveRoleStatus(activeCase, role);
+  }
+
+  // The classified, browser-safe failure reason for a role that's already
+  // landed (advocate_outputs/verdicts.error_message — sanitized server-side,
+  // see lib/orchestrator/run.ts) — never a raw exception message.
+  function roleErrorMessage(role: AgentRole): string | null {
     const c = activeCase;
-    if (!c) return "idle";
+    if (!c) return null;
     const isJudge = JUDGE_ROLES.includes(role);
-    if (isJudge) {
-      const row = c.verdicts.find((v) => v.role === role);
-      if (row) return row.failed ? "failed" : "done";
-      if (c.case.status !== "running") return "excluded";
-      const stage1Done = ADVOCATE_ROLES.every((r) => c.advocateOutputs.some((a) => a.role === r));
-      return stage1Done ? "running" : "pending";
-    }
-    const row = c.advocateOutputs.find((a) => a.role === role);
-    if (row) return row.failed ? "failed" : "done";
-    return c.case.status === "running" ? "running" : "excluded";
+    const row = isJudge ? c.verdicts.find((v) => v.role === role) : c.advocateOutputs.find((a) => a.role === role);
+    return row?.failed ? row.error_message : null;
   }
 
   if (loading) return <main><p>Loading…</p></main>;
@@ -1083,11 +1173,14 @@ export default function ConsolePage() {
   function renderAgentCard(role: AgentRole) {
     const draft = drafts![role];
     const status = roleStatus(role);
+    const retryInfo = activeCase?.retrying?.[role];
+    const errorMessage = roleErrorMessage(role);
     const stance = ROLE_META[role].stance;
     const dropdownDisabled = modelMode === "single";
+    const statusLabel = status === "retrying" && retryInfo ? `retrying ${retryInfo.attempt}/${retryInfo.maxAttempts}` : status;
 
     return (
-      <div key={role} className={`agent-card-frame ${stance}`}>
+      <div key={role} className={`agent-card-frame ${stance} status-${status}`}>
         <div className={`panel agent-card ${stance}`}>
           <div className="agent-panel-header-new">
             <span className={`role-icon ${stance}`}><ROLE_ICON stance={stance} /></span>
@@ -1096,6 +1189,20 @@ export default function ConsolePage() {
               <span className="role-name">{draft.name || <em style={{ opacity: 0.5 }}>No name set</em>}</span>
               <span className="role-subtitle">{ROLE_SUBTITLE[role]}</span>
             </div>
+            {status !== "idle" && (
+              <div style={{ marginLeft: "auto" }}>
+                {status === "failed" && errorMessage ? (
+                  <span className="info-tooltip-anchor">
+                    <button type="button" className="status-badge failed status-badge-btn clickable" tabIndex={0}>
+                      failed
+                    </button>
+                    <span className="info-tooltip-text">{errorMessage}</span>
+                  </span>
+                ) : (
+                  <span className={`status-badge ${status}`}>{statusLabel}</span>
+                )}
+              </div>
+            )}
           </div>
 
           <label>
@@ -1415,29 +1522,5 @@ export default function ConsolePage() {
         </div>
       </section>
     </main>
-  );
-}
-
-function AgentOutputPreview({ role, activeCase }: { role: AgentRole; activeCase: CaseDetail }) {
-  const isJudge = JUDGE_ROLES.includes(role);
-  const row = isJudge
-    ? activeCase.verdicts.find((v) => v.role === role)
-    : activeCase.advocateOutputs.find((a) => a.role === role);
-  if (!row) return null;
-
-  const tokens = row.total_tokens;
-  const cost = row.cost_usd;
-
-  return (
-    <details style={{ marginTop: 8 }}>
-      <summary className="hint">Output</summary>
-      {(tokens != null || cost != null) && (
-        <div className="result-meta" style={{ marginBottom: 4 }}>
-          {tokens != null && <span>{tokens.toLocaleString()} tokens</span>}
-          {cost != null && <span>${Number(cost).toFixed(6)}</span>}
-        </div>
-      )}
-      <pre>{row.failed ? `Failed: ${row.error_message}` : row.output}</pre>
-    </details>
   );
 }

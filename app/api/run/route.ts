@@ -7,6 +7,7 @@ import { after } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { runCase, type RunAgentInput } from "@/lib/orchestrator/run";
 import { ADVOCATE_ROLES, ALL_ROLES, type AgentRole } from "@/lib/constants";
+import { DB_UNREACHABLE_AT_START } from "@/lib/toastMessages";
 
 export const runtime = "nodejs";
 
@@ -54,8 +55,12 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !caseRow) {
-    // §10.1: Supabase unreachable — fail before any OpenRouter calls fire.
-    return NextResponse.json({ error: error?.message ?? "Failed to create case" }, { status: 502 });
+    // §10.1: Supabase unreachable — fail before any OpenRouter calls fire, so
+    // no cost is incurred for a run that can't be recorded. The real
+    // Supabase error is logged server-side only — §11, never a raw exception
+    // in a response body.
+    console.error("[POST /api/run] failed to create case row:", error?.message ?? "unknown error");
+    return NextResponse.json({ error: DB_UNREACHABLE_AT_START }, { status: 502 });
   }
 
   after(async () => {

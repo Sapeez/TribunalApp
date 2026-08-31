@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callModel } from "@/lib/openrouter/client";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { PDF_READ_FAILED, uploadMessage } from "@/lib/toastMessages";
 
 export const runtime = "nodejs";
 
@@ -87,10 +88,10 @@ export async function POST(request: NextRequest) {
   const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
   if (!isPdf) {
-    return NextResponse.json({ error: "Only .pdf files are accepted" }, { status: 400 });
+    return NextResponse.json({ error: uploadMessage("wrong_type") }, { status: 400 });
   }
   if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: "File exceeds the 5 MB limit" }, { status: 400 });
+    return NextResponse.json({ error: uploadMessage("too_large") }, { status: 400 });
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -101,10 +102,10 @@ export async function POST(request: NextRequest) {
     const parsed = await pdfParse(buffer);
     rawText = parsed.text;
   } catch (err) {
-    return NextResponse.json(
-      { error: `Failed to read the document: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 400 }
-    );
+    // Not an OpenRouter call, so no classification table applies — but still
+    // never echo the raw parser exception (could include internal paths).
+    console.error("[POST /api/extract] pdf-parse failed:", err instanceof Error ? err.message : String(err));
+    return NextResponse.json({ error: PDF_READ_FAILED }, { status: 400 });
   }
 
   if (!rawText.trim()) {
@@ -172,9 +173,12 @@ export async function POST(request: NextRequest) {
     });
 
     if (oversizedKeys.length > 0) {
+      // Internal field keys stay in the structured payload (useful for
+      // debugging) but never get concatenated into the shown message — the
+      // rule (docs/toast-message-copy.md) bans internal field names in copy.
       return NextResponse.json(
         {
-          error: `Extraction returned field(s) longer than expected (${oversizedKeys.join(", ")}) — possibly a malformed or manipulated document. Nothing was pre-filled — review the document or enter fields manually.`,
+          error: "Something in that document looked off — possibly a malformed or manipulated file. Nothing was pre-filled; review the document or enter fields manually.",
           oversizedFields: oversizedKeys,
         },
         { status: 422 }
@@ -185,9 +189,8 @@ export async function POST(request: NextRequest) {
       const emptyKeys = REQUIRED_CONTENT_KEYS.filter((k) => !(typeof parsed[k] === "string" && parsed[k].trim().length > 0));
       return NextResponse.json(
         {
-          error: `Extraction only found ${usableFieldCount}/${REQUIRED_CONTENT_KEYS.length} usable fields. Nothing was pre-filled — review the document or enter fields manually.`,
+          error: uploadMessage("incomplete"),
           emptyFields: emptyKeys,
-          rawLlmOutput: result.text.slice(0, 500),
         },
         { status: 422 }
       );
@@ -217,9 +220,7 @@ export async function POST(request: NextRequest) {
       finished_at: finishedAt.toISOString(),
     });
 
-    return NextResponse.json(
-      { error: `Extraction failed: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 502 }
-    );
+    console.error("[POST /api/extract] extraction call failed:", err instanceof Error ? err.message : String(err));
+    return NextResponse.json({ error: uploadMessage("extraction_failed") }, { status: 502 });
   }
 }

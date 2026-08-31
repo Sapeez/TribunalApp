@@ -12,6 +12,7 @@
 
   --status-idle: #a8a29e;
   --status-running: #ca8a04;
+  --status-retrying: #0ea5e9;
   --status-done: #16a34a;
   --status-failed: #dc2626;
   --status-partial: #ea580c;
@@ -383,9 +384,29 @@ button.secondary {
 }
 .status-badge.idle, .status-badge.excluded { background: var(--status-idle); }
 .status-badge.running, .status-badge.pending { background: var(--status-running); }
+.status-badge.retrying { background: var(--status-retrying); animation: status-badge-pulse 1.4s ease-in-out infinite; }
 .status-badge.complete, .status-badge.done { background: var(--status-done); }
 .status-badge.failed { background: var(--status-failed); }
 .status-badge.partial-failure { background: var(--status-partial); }
+
+/* Failed/retrying badges double as a hover/click target for the classified
+   reason — reuses the .info-tooltip-anchor/.info-tooltip-text pattern below. */
+.status-badge-btn {
+  border: none;
+  cursor: default;
+  font: inherit;
+}
+.status-badge-btn.clickable { cursor: pointer; }
+
+@keyframes status-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.agent-card-frame.status-running { box-shadow: 0 0 0 2px var(--status-running); }
+.agent-card-frame.status-retrying { box-shadow: 0 0 0 2px var(--status-retrying); animation: status-badge-pulse 1.4s ease-in-out infinite; }
+.agent-card-frame.status-done { box-shadow: 0 0 0 2px var(--status-done); }
+.agent-card-frame.status-failed { box-shadow: 0 0 0 2px var(--status-failed); }
 
 .row {
   display: flex;
@@ -1305,6 +1326,11 @@ button.secondary {
   border-color: rgba(181, 137, 47, 0.35);
 }
 
+.toast-retrying {
+  background: rgba(8, 30, 42, 0.9);
+  border-color: rgba(14, 165, 233, 0.4);
+}
+
 .toast-success {
   background: rgba(14, 36, 18, 0.9);
   border-color: rgba(22, 163, 74, 0.45);
@@ -1326,6 +1352,7 @@ button.secondary {
 }
 
 .toast-generating .toast-icon { color: var(--gold); }
+.toast-retrying .toast-icon   { color: var(--status-retrying); }
 .toast-success .toast-icon    { color: #4ade80; }
 .toast-error .toast-icon      { color: #f87171; }
 
@@ -1337,6 +1364,11 @@ button.secondary {
   border: 2px solid rgba(181, 137, 47, 0.3);
   border-top-color: var(--gold);
   animation: btn-loader-spin 0.75s linear infinite;
+}
+
+.toast-spinner-retrying {
+  border-color: rgba(14, 165, 233, 0.3);
+  border-top-color: var(--status-retrying);
 }
 
 .toast-body {

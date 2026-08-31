@@ -285,6 +285,9 @@ One page, top to bottom: charge sheet → 7 agent panels (Defense / Prosecution 
 
 ## 10.1 Error states (new)
 
+**See `specs/error-handling.md` for the current, as-built classification table, retry/backoff
+timing, and the race-condition audit — this section is the original, now-superseded sketch.**
+
 Failure modes that weren't previously specified, and how they surface:
 
 - **OpenRouter unreachable / key invalid / out of credits**: the affected call is logged as `status: 'failed'` in `call_logs` with the real error message (never swallowed), the relevant panel shows a red "failed" state, and — per the existing retry design (§4.1) — it's retried up to 2 more times before being counted as a genuine failure. A run where every call failed gets `status: 'failed'`; a run where some succeeded gets `partial-failure` (§7). Never blocks the rest of the run — one failed advocate/judge doesn't stop the others.

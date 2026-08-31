@@ -67,6 +67,10 @@ extra scrutiny — see `specs/security-boundary.md` and the `code-review` skill.
 - Before calling a change done: `npm run build` (typecheck + Next build) and `npm run lint`. There
   is no test suite in this repo yet — don't invent one unasked; do a manual run-through instead
   (`npm run dev`, submit the seeded Jon Snow case, confirm all 7 outputs + audit trail land).
+- Toast copy → follow `docs/toast-message-copy.md`'s rule for every toast, present and future: a
+  two-part "what happened, what's next" sentence, plain language (no HTTP codes/stack
+  traces/raw error strings), name the specific agent/role for a per-agent failure, calm tone, never
+  a secret. The literal strings live in one centralized map in code, not scattered inline.
 
 ## When you're about to touch something risky
 
