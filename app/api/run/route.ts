@@ -1,7 +1,7 @@
 // POST /api/run — kicks off the 2-stage pipeline and returns immediately with
 // the case id; the browser polls GET /api/cases/:id for progress (§13.1,
 // resolved: polling). The pipeline keeps running after the response via
-// `after()`, so this works both in `next dev` and Netlify's Next.js runtime.
+// `after()`, so this works both in `next dev` and Vercel's serverless runtime.
 import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/client";

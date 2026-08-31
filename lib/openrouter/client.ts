@@ -23,7 +23,7 @@ export function getOpenRouterClient(): OpenAI {
   if (!apiKey) {
     throw new Error(
       "OPENROUTER_API_KEY is not set. Locally: copy .env.example to .env.local " +
-        "and paste your key in. On Netlify: Site settings -> Environment " +
+        "and paste your key in. On Vercel: Project Settings -> Environment " +
         "variables -> add OPENROUTER_API_KEY. See SETUP.md."
     );
   }
