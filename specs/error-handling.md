@@ -1,7 +1,8 @@
-# Error handling & race conditions — as built
+# Error handling & race conditions spec
 
-Supersedes `TRIBUNAL_REQUIREMENTS.md` §10.1's error-states list with the actual classification
-table and the race-condition audit that came with it.
+Supersedes `TRIBUNAL_REQUIREMENTS.md` §10.1's error-states list. This is the classification table
+and race-condition audit that `lib/orchestrator/run.ts`, `lib/openrouter/errors.ts`, and
+`lib/toastMessages.ts` are built against.
 
 ## Failure-mode classification
 

@@ -1,4 +1,4 @@
-# Toast message copy — project rule
+# Toast message alignment — project rule
 
 **Status:** Adopted. Mirrored into `CLAUDE.md`'s "Working conventions" so it applies automatically
 to every future toast, not just the ones written when this rule was adopted.
@@ -18,14 +18,16 @@ All user-facing toast bodies follow this voice, whether for an existing failure 
 added later:
 
 - Two-part shape in one or two short sentences: what happened, then what's next (retrying
-  automatically / needs a person to fix something / failed, try again).
+automatically / needs a person to fix something / failed, try again).
 - Plain language only — no HTTP codes, internal field names, stack traces, or raw error strings.
-  If the cause is genuinely unknown, say so plainly rather than falling back to a technical string.
+If the cause is genuinely unknown, say so plainly rather than falling back to a technical string.
 - Name the specific agent/role affected for any per-agent failure (e.g. "Judge 2") rather than a
-  generic "a call failed."
+generic "a call failed."
 - Calm, matter-of-fact tone — no exclamation points, no apologetic or overly enthusiastic phrasing.
 - Never include API keys, database details, or any value covered by the requirements doc's §11
-  trust boundary (`specs/security-boundary.md`).
+trust boundary (`specs/security-boundary.md`).
+
+
 
 ## Where the actual copy lives
 
@@ -36,57 +38,69 @@ scattered across the codebase.
 
 **Implemented:** `lib/toastMessages.ts` is that centralized map — role-prefixed
 `agentRetryMessage()`/`agentFailureMessage()`, plus `DB_UNREACHABLE_AT_START`, `RUN_ALREADY_ACTIVE`,
-and `uploadMessage()`. `lib/orchestrator/run.ts` builds a `roleLabel` (e.g. "Defense — Jon Snow")
-per agent and threads it through every stored `error_message`. `app/page.tsx`'s poll loop diffs
-per-role status each tick and fires a one-shot toast the moment a role starts retrying or lands as
-failed — see `specs/error-handling.md`'s "Live retrying visibility" section for how.
+`uploadMessage()`, and `modelApplyFailedMessage()`. `lib/orchestrator/run.ts` builds a `roleLabel`
+(e.g. "Defense — Jon Snow") per agent and threads it through every stored `error_message`.
+`app/page.tsx`'s poll loop diffs per-role status each tick and fires a one-shot toast the moment a
+role starts retrying or lands as failed — see `specs/error-handling.md`'s "Live retrying
+visibility" section for how. The "single model for all" bulk-apply failure (one role's
+`PUT /api/agent-config/:role` failing mid-batch) is also a toast, not an inline banner — fired via
+`modelApplyFailedMessage()`.
 
 **Still open, not silently claiming otherwise:**
+
 - `writeFailedMessage()` is defined but not wired to a live signal — if a role's DB write is
-  dead-lettered (model call succeeded, the *save* failed after retries), there's currently no API
-  signal distinguishing that role from "never ran." See `specs/error-handling.md`'s "known gap."
+dead-lettered (model call succeeded, the *save* failed after retries), there's currently no API
+signal distinguishing that role from "never ran." See `specs/error-handling.md`'s "known gap."
 - "Saving — try again in a moment." (the race-guard example for a blocking config save) has no
-  current trigger: this app has no per-role "Save" button today — prompts/names/tokens are sent
-  fresh with every Run, and the only PUT-triggering UI (the "single model" dropdown) uses a
-  stale-response guard instead of a blocking lock, so nothing ever shows "please wait." Revisit if
-  a blocking save is added later.
+current trigger: this app has no per-role "Save" button today — prompts/names/tokens are sent
+fresh with every Run, and the only PUT-triggering UI (the "single model" dropdown) uses a
+stale-response guard instead of a blocking lock, so nothing ever shows "please wait." Revisit if
+a blocking save is added later.
+
+
 
 ## Reference examples
 
 Transient, retrying automatically:
+
 - OpenRouter 5xx / provider down: "[Role] couldn't reach the model provider — retrying
-  automatically (attempt 2 of 3)."
+automatically (attempt 2 of 3)."
 - Rate limited: "[Role] hit a rate limit — retrying shortly."
 - Network blip: "[Role]'s request didn't go through — retrying."
 
 Exhausted retries (final failure for that call):
+
 - Provider-side: "[Role] failed after 3 attempts — the model provider may be down. You can re-run
-  the case once it's back."
+the case once it's back."
 - Unknown cause: "[Role] couldn't complete after 3 attempts. Check the audit log for this call, or
-  try running again."
+try running again."
 
 Non-retryable / config issues (fail fast, no retry attempted):
+
 - Invalid/missing API key: "The connection to the model provider isn't set up correctly — this
-  needs to be fixed in the app's settings, not by re-running."
+needs to be fixed in the app's settings, not by re-running."
 - `max_tokens` over the server cap: "[Role]'s response length setting is too high and was capped
-  automatically." (informational, not an error)
+automatically." (informational, not an error)
 
 Database / persistence:
+
 - Supabase unreachable at run start: "Couldn't start the run — the database isn't reachable right
-  now, so nothing was sent to the model provider and no cost was incurred. Try again in a moment."
+now, so nothing was sent to the model provider and no cost was incurred. Try again in a moment."
 - Write failure mid-run: "[Role]'s response came back but couldn't be saved — this may need a
-  re-run to be recorded correctly."
+re-run to be recorded correctly."
 
 Dossier upload / extraction:
+
 - Wrong file type: "Only PDF files are supported." (this app is PDF-only — see
-  `specs/status.md` on the dropped `.docx` path; don't advertise a format the app doesn't accept)
+`specs/status.md` on the dropped `.docx` path; don't advertise a format the app doesn't accept)
 - Over size limit: "That file is larger than 5 MB — try a smaller file."
 - Extraction incomplete: "Couldn't pull all the fields from that document — review and fill in
-  what's missing below."
+what's missing below."
 - Extraction call failed/timed out: "Couldn't process that document right now. You can still fill
-  in the case fields by hand."
+in the case fields by hand."
 
 Race-condition guard surfaced to the user:
+
 - "This case is already running." / "Saving — try again in a moment."
 
 These examples are a starting point, not exhaustive — any new failure mode should be written to

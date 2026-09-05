@@ -1,7 +1,8 @@
-# Data model — as built
+# Data model spec
 
-Source of truth: `supabase/migrations/0001_init.sql` through `0003_add_completion_tokens_to_outputs.sql`.
-This supersedes `TRIBUNAL_REQUIREMENTS.md` §7, which only reflects migration `0001`.
+This is the schema spec that `supabase/migrations/0001_init.sql` through
+`0006_add_name_to_agent_configs.sql` were built against, migration by migration. It supersedes
+`TRIBUNAL_REQUIREMENTS.md` §7, which only reflects migration `0001`.
 
 ## `agent_configs`
 
@@ -15,6 +16,7 @@ The live, editable config for each of the 7 roles. `role` is the primary key:
 | `model`         | text        | OpenRouter model id                                    |
 | `system_prompt` | text        |                                                        |
 | `max_tokens`    | integer     | clamped server-side to `MAX_TOKENS_CAP` on every write |
+| `name`          | text        | added in `0006` — persisted display name, written by the dashboard's per-panel Save (`PUT /api/agent-config/:role`); nullable, distinct from the per-run `name` snapshotted into `advocate_outputs`/`verdicts` |
 | `updated_at`    | timestamptz |                                                        |
 
 
@@ -71,7 +73,10 @@ Every call *attempt*, including retries and the extraction call. `case_id` and `
 because an `extraction` call (`app/api/extract/route.ts`) happens at upload time, before a `cases`
 row necessarily exists, and isn't tied to one of the 7 roles.
 
-`call_type`: `'advocate' | 'judge' | 'extraction'`. `attempt_number`: 1, 2, or 3
+`call_type`: `'advocate' | 'judge' | 'extraction' | 'case-generation'` (the last added for the
+dashboard redesign's "Generate case with AI", `app/api/generate-case/route.ts` — same `case_id`/
+`role` nullability reasoning as `extraction`, not counted in the 7-call-per-run audit trail).
+`attempt_number`: 1, 2, or 3
 (`MAX_ATTEMPTS_PER_CALL` in `lib/constants.ts`). `status`: `'success' | 'failed'` — a response
 with no real `usage` object from OpenRouter is logged as `failed` even if `output` is non-null
 (§5 of the requirements doc: never a partially-trusted number).

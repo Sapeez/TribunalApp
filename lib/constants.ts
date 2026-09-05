@@ -37,22 +37,38 @@ export function maxTokensCapFor(role: AgentRole): number {
 
 // Cost-optimized 7-model curated pool, §9. Kept server-side only — the browser
 // gets this via GET /api/models, never hardcodes it itself.
+//
+// `tier` is a qualitative, static price-band label — NOT a per-run dollar
+// estimate. Actual cost only ever comes from OpenRouter's real `usage.cost`
+// on a response (lib/openrouter/client.ts); a pre-run dollar figure would be
+// a guess, which the audit trail explicitly never allows (see invariant #4).
+export type ModelTier = "budget" | "standard" | "premium";
+
 export interface CuratedModel {
   id: string;
   label: string;
+  tier: ModelTier;
 }
 
 export const CURATED_MODELS: CuratedModel[] = [
-  { id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash (cheapest, default)" },
-  { id: "openai/gpt-4o-mini", label: "GPT-4o mini" },
-  { id: "tencent/hy3-preview", label: "Hunyuan HY3 Preview" },
-  { id: "minimax/minimax-m3", label: "MiniMax M3" },
-  { id: "meta-llama/llama-3.1-70b-instruct", label: "Llama 3.1 70B Instruct" },
-  { id: "anthropic/claude-3-haiku", label: "Claude 3 Haiku" },
-  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+  { id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash (cheapest, default)", tier: "budget" },
+  { id: "openai/gpt-4o-mini", label: "GPT-4o mini", tier: "budget" },
+  { id: "tencent/hy3-preview", label: "Hunyuan HY3 Preview", tier: "budget" },
+  { id: "minimax/minimax-m3", label: "MiniMax M3", tier: "standard" },
+  { id: "meta-llama/llama-3.1-70b-instruct", label: "Llama 3.1 70B Instruct", tier: "standard" },
+  { id: "anthropic/claude-3-haiku", label: "Claude 3 Haiku", tier: "standard" },
+  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", tier: "premium" },
 ];
 
 export const DEFAULT_MODEL = process.env.DEFAULT_MODEL || "deepseek/deepseek-v4-flash";
+
+// §5 of the redesign plan, expanded per docs/plans/advocates-judges-avatar-list.md
+// §3: a one-shot "generate a case with AI" call — not part of the scored
+// 7-call pipeline — that now drafts case text AND the 7 role names/profiles
+// (lib/caseFields.ts's 15-field schema), matching /api/extract's budget for
+// the same shape (~2000-3000 tokens typical, generous headroom below). Not
+// retried, so a truncated draft is just an annoyance, not an audit problem.
+export const CASE_GENERATION_MAX_TOKENS = 4500;
 
 // §4.1: a failed call retries up to 2 more times (3 attempts total), run-wide
 // ceiling of 21 attempts (7 x 3).

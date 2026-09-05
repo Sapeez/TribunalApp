@@ -39,13 +39,13 @@ export function agentRetryMessage(ctx: {
   const { roleLabel, code, nextAttempt, maxAttempts } = ctx;
   switch (code) {
     case "provider_down":
-      return `${roleLabel} couldn't reach the model provider — retrying automatically (attempt ${nextAttempt} of ${maxAttempts}).`;
+      return `${roleLabel} couldn't reach the model provider. Retrying (attempt ${nextAttempt} of ${maxAttempts}).`;
     case "rate_limit":
-      return `${roleLabel} hit a rate limit — retrying shortly.`;
+      return `${roleLabel} hit a rate limit. Retrying shortly.`;
     case "network":
-      return `${roleLabel}'s request didn't go through — retrying.`;
+      return `${roleLabel}'s request didn't go through. Retrying.`;
     default:
-      return `${roleLabel} hit an issue — retrying (attempt ${nextAttempt} of ${maxAttempts}).`;
+      return `${roleLabel} hit an issue. Retrying (attempt ${nextAttempt} of ${maxAttempts}).`;
   }
 }
 
@@ -54,24 +54,24 @@ export function agentFailureMessage(ctx: { roleLabel: string; code: ErrorCode; m
   const { roleLabel, code, maxAttempts } = ctx;
   if (code === "auth") {
     // A global config problem, not this agent's fault specifically — no role prefix.
-    return "The connection to the model provider isn't set up correctly — this needs to be fixed in the app's settings, not by re-running.";
+    return "The connection to the model provider isn't set up correctly. Fix itin the app's settings";
   }
   if (code === "bad_request") {
-    return `${roleLabel}'s configuration was rejected by the model provider — check its model/max-tokens settings.`;
+    return `${roleLabel}'s configuration was rejected by the model provider. Check its model/max-tokens settings.`;
   }
   switch (code) {
     case "provider_down":
     case "rate_limit":
     case "network":
-      return `${roleLabel} failed after ${maxAttempts} attempts — the model provider may be down. You can re-run the case once it's back.`;
+      return `${roleLabel} failed after ${maxAttempts} attempts. The model provider may be down. Try again later.`;
     default:
-      return `${roleLabel} couldn't complete after ${maxAttempts} attempts. Check the audit log for this call, or try running again.`;
+      return `${roleLabel} couldn't complete after ${maxAttempts} attempts. Check the audit log, or try again.`;
   }
 }
 
 /** The model call succeeded but its result couldn't be written to the database (see lib/orchestrator/run.ts's retryWrite). */
 export function writeFailedMessage(roleLabel: string): string {
-  return `${roleLabel}'s response came back but couldn't be saved — this may need a re-run to be recorded correctly.`;
+  return `${roleLabel}'s response came back but couldn't be saved. This may need a re-run to be recorded correctly.`;
 }
 
 // Defensive fallbacks for the (should-never-happen) case where the poll
@@ -86,12 +86,40 @@ export function agentFailedFallback(roleLabel: string): string {
 }
 
 export const DB_UNREACHABLE_AT_START =
-  "Couldn't start the run — the database isn't reachable right now, so nothing was sent to the model provider and no cost was incurred. Try again in a moment.";
+  "Couldn't start the run: the database isn't reachable right now. Try again in a moment.";
 
 export const RUN_ALREADY_ACTIVE = "This case is already running.";
 
 export const PDF_READ_FAILED =
-  "Couldn't read that PDF — it may be corrupted, scanned-image-only, or password protected. Try another file or enter fields manually.";
+  "Couldn't read that PDF: it may be corrupted, scanned-image-only, or password protected. Try another file or enter fields manually.";
+
+// §5 of the redesign plan: "Generate case with AI" is a one-shot convenience
+// call, not part of the scored pipeline — no retry, so no attempt-count
+// variant is needed here.
+export const CASE_GENERATION_FAILED = "Couldn't generate a case right now. You can still write one yourself.";
+
+export type CaseGenerationFailureKind = "incomplete";
+
+// Mirrors uploadMessage() below — generation now drafts the full 7-role cast
+// (docs/plans/advocates-judges-avatar-list.md §3), so an incomplete result
+// gets the same "reject the whole thing, review what's missing" treatment as
+// a bad dossier extraction.
+export function caseGenerationMessage(kind: CaseGenerationFailureKind): string {
+  switch (kind) {
+    case "incomplete":
+      return "Couldn't draft a full cast for that case. Review and fill in what's missing below, or try again.";
+  }
+}
+
+/** The "single model for all" bulk apply failed to save for one role's config. */
+export function modelApplyFailedMessage(roleLabel: string): string {
+  return `Couldn't apply the new model to ${roleLabel}, its previous model is still in effect there. Try again.`;
+}
+
+/** A single row's model/max-tokens/name edit (PUT /api/agent-config/:role) failed to save. */
+export function roleConfigSaveFailedMessage(roleLabel: string): string {
+  return `Couldn't save that change for ${roleLabel}, it wasn't applied. Try again.`;
+}
 
 export type UploadFailureKind = "wrong_type" | "too_large" | "incomplete" | "extraction_failed";
 

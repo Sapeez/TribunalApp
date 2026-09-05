@@ -1,7 +1,8 @@
-# Security / trust boundary — as built
+# Security / trust boundary spec
 
-Matches `TRIBUNAL_REQUIREMENTS.md` §11 in intent; this doc pins down exactly where each rule is
-enforced in the current code, so a reviewer can check it mechanically instead of by inspection.
+Matches `TRIBUNAL_REQUIREMENTS.md` §11 in intent. This is the spec each rule below is built
+against, pinned down to exactly where it must be enforced in code, so a reviewer can check it
+mechanically instead of by inspection.
 
 ## Secrets
 

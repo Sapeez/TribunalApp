@@ -14,10 +14,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const body = await request.json();
-  const { model, systemPrompt, maxTokens } = body as {
+  const { model, systemPrompt, maxTokens, name } = body as {
     model?: string;
     systemPrompt?: string;
     maxTokens?: number;
+    name?: string;
   };
 
   if (!model || typeof model !== "string") {
@@ -29,6 +30,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if (typeof maxTokens !== "number" || maxTokens <= 0) {
     return NextResponse.json({ error: "maxTokens must be a positive number" }, { status: 400 });
   }
+  if (name !== undefined && typeof name !== "string") {
+    return NextResponse.json({ error: "name must be a string" }, { status: 400 });
+  }
 
   const clampedMaxTokens = Math.min(maxTokens, maxTokensCapFor(role as AgentRole));
 
@@ -39,6 +43,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       model,
       system_prompt: systemPrompt,
       max_tokens: clampedMaxTokens,
+      ...(name !== undefined ? { name } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("role", role)

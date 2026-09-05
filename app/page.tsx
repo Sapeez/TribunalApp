@@ -3,8 +3,22 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import JSZip from "jszip";
 import { CASE_TEXT as SEED_CASE_TEXT, AGENT_SYSTEM_PROMPTS } from "@/prompts/seed-content";
-import { ADVOCATE_ROLES, JUDGE_ROLES, ALL_ROLES, type AgentRole } from "@/lib/constants";
-import { agentFailedFallback, agentRetryingFallback, agentRetryMessage, RUN_ALREADY_ACTIVE, type ErrorCode } from "@/lib/toastMessages";
+import { ADVOCATE_ROLES, JUDGE_ROLES, ALL_ROLES, type AgentRole, type ModelTier } from "@/lib/constants";
+import {
+  agentFailedFallback,
+  agentRetryingFallback,
+  agentRetryMessage,
+  RUN_ALREADY_ACTIVE,
+  CASE_GENERATION_FAILED,
+  caseGenerationMessage,
+  modelApplyFailedMessage,
+  roleConfigSaveFailedMessage,
+  type ErrorCode,
+} from "@/lib/toastMessages";
+import { Card } from "@/components/Card";
+import { StatusPill } from "@/components/StatusPill";
+import { SegmentedControl } from "@/components/SegmentedControl";
+import { Avatar } from "@/components/Avatar";
 
 type Stance = "defense" | "prosecution" | "judge";
 
@@ -26,6 +40,28 @@ const ROLE_META: Record<AgentRole, { role: string; stance: Stance }> = {
   "judge-1":      { role: "Judge",       stance: "judge"       },
   "judge-2":      { role: "Judge",       stance: "judge"       },
   "judge-3":      { role: "Judge",       stance: "judge"       },
+};
+
+// Maps the 15-field shape returned by /api/extract and /api/generate-case
+// (lib/caseFields.ts) onto the 7 role slots — shared by handleUpload and
+// requestCaseGeneration via applyCastFields.
+const CAST_PROMPT_MAP: Record<string, AgentRole> = {
+  defense1: "defense-1",
+  defense2: "defense-2",
+  prosecution1: "prosecution-1",
+  prosecution2: "prosecution-2",
+  judge1: "judge-1",
+  judge2: "judge-2",
+  judge3: "judge-3",
+};
+const CAST_NAME_MAP: Record<string, AgentRole> = {
+  defense1Name: "defense-1",
+  defense2Name: "defense-2",
+  prosecution1Name: "prosecution-1",
+  prosecution2Name: "prosecution-2",
+  judge1Name: "judge-1",
+  judge2Name: "judge-2",
+  judge3Name: "judge-3",
 };
 
 function roleLabel(role: AgentRole, name?: string | null): string {
@@ -52,30 +88,6 @@ const ROLE_SUBTITLE: Record<AgentRole, string> = {
   "judge-2":      "Independent Assessment",
   "judge-3":      "Independent Assessment",
 };
-
-function ScaleIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3v18M5 8l-3 6a3 3 0 0 0 6 0l-3-6ZM19 8l-3 6a3 3 0 0 0 6 0l-3-6ZM5 8h14M8 21h8" />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-    </svg>
-  );
-}
-
-function BuildingIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 21h18M4 21V9l8-6 8 6v12M9 21v-6h6v6M9 12h.01M15 12h.01M9 15h.01M15 15h.01" />
-    </svg>
-  );
-}
 
 function DownloadIcon({ size = 14 }: { size?: number }) {
   return (
@@ -119,6 +131,16 @@ function CheckIcon() {
   );
 }
 
+function XCircleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="15" y1="9" x2="9" y2="15" />
+      <line x1="9" y1="9" x2="15" y2="15" />
+    </svg>
+  );
+}
+
 function EditIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -144,10 +166,6 @@ function letterSpans(text: string, keyPrefix: string) {
   ));
 }
 
-function ROLE_ICON({ stance }: { stance: Stance }) {
-  return stance === "defense" ? <ShieldIcon /> : <ScaleIcon />;
-}
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ToastItem {
@@ -159,6 +177,7 @@ interface ToastItem {
 interface CuratedModel {
   id: string;
   label: string;
+  tier: ModelTier;
 }
 
 interface AgentDraft {
@@ -220,6 +239,8 @@ interface CaseSummary {
   total_cost_usd: number | null;
   total_time_ms: number | null;
 }
+
+type PastRunsFilter = "all" | "complete" | "partial-failure" | "failed";
 
 interface RawAdvocateOutputRow {
   role: string;
@@ -371,7 +392,7 @@ interface ResultsModalProps {
   onHoverExport: () => void;
 }
 
-const DEFAULT_COL_WIDTHS = [100, 130, 240, 280, 140, 150, 110, 90];
+const DEFAULT_COL_WIDTHS = [120, 125, 230, 310, 130, 145, 125, 51];
 
 function ResultsModal({
   caseDetail,
@@ -488,17 +509,16 @@ function ResultsModal({
         <div className="modal-header">
           <div className="modal-header-left">
             <span className="modal-title">Prompt Results</span>
-            <span className={`modal-verdict-badge ${verdictClass}`}>{verdictLabel}</span>
           </div>
           <button className="modal-close-btn" onClick={onClose} aria-label="Close">
-            <CloseIcon size={18} />
+            <CloseIcon size={14} />
           </button>
         </div>
 
-        {/* Charge sheet */}
-        <div className="modal-charge-sheet">
-          <div className="modal-section-label">Charge Sheet</div>
-          <div className="modal-charge-text">{caseDetail.case.case_text}</div>
+        {/* Verdict */}
+        <div className="modal-verdict-section">
+          <span className="modal-section-label">Verdict</span>
+          <span className={`modal-verdict-badge ${verdictClass}`}>{verdictLabel}</span>
         </div>
 
         {/* Table */}
@@ -627,12 +647,12 @@ function deriveRoleStatus(c: CaseDetail | null, role: AgentRole): RoleStatus {
 export default function ConsolePage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [caseText, setCaseText] = useState("");
+  const [caseText, setCaseText] = useState(SEED_CASE_TEXT);
   const [drafts, setDrafts] = useState<Record<AgentRole, AgentDraft> | null>(null);
+  const [savingRoles, setSavingRoles] = useState<Partial<Record<AgentRole, boolean>>>({});
   const [models, setModels] = useState<CuratedModel[]>([]);
   const [modelMode, setModelMode] = useState<"single" | "different">("single");
   const [singleModel, setSingleModel] = useState<string>("");
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -653,10 +673,16 @@ export default function ConsolePage() {
   // earlier "single model" apply can't clobber a newer selection.
   const modelApplyRef = useRef(0);
 
+  const chargeSheetRef = useRef<HTMLElement>(null);
+  const pastRunsSectionRef = useRef<HTMLElement>(null);
+  const pastRunsScrollRef = useRef<HTMLDivElement>(null);
+  const pastRunsSentinelRef = useRef<HTMLDivElement>(null);
+
   const [pastRuns, setPastRuns] = useState<CaseSummary[]>([]);
   const [pastRunsOffset, setPastRunsOffset] = useState(0);
   const [hasMoreRuns, setHasMoreRuns] = useState(false);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [pastRunsFilter, setPastRunsFilter] = useState<PastRunsFilter>("all");
 
   const [zipCache, setZipCache] = useState<Record<string, { blob: Blob; sizeMb: string }>>({});
   const [zipLoading, setZipLoading] = useState<Record<string, boolean>>({});
@@ -664,6 +690,12 @@ export default function ConsolePage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
+  const [generatingCase, setGeneratingCase] = useState(false);
+  const [generateCaseError, setGenerateCaseError] = useState<string | null>(null);
+  // Which replace action is pending confirmation — "generate" (AI) or "example"
+  // (load the default seed case) — or null when no banner is shown.
+  const [pendingReplaceConfirm, setPendingReplaceConfirm] = useState<"generate" | "example" | null>(null);
 
   // Toast state
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -713,17 +745,19 @@ export default function ConsolePage() {
         for (const role of ALL_ROLES) {
           nextDrafts[role] = {
             model: modelsJson.defaultModel ?? modelsJson.models?.[0]?.id ?? "",
-            systemPrompt: "",
+            systemPrompt: AGENT_SYSTEM_PROMPTS[role as keyof typeof AGENT_SYSTEM_PROMPTS] ?? "",
             maxTokens: ADVOCATE_ROLES.includes(role) ? 1200 : 1600,
-            name: "",
+            name: EXAMPLE_NAMES[role],
           };
         }
         for (const row of configJson.agents ?? []) {
           const roleKey = row.role as AgentRole;
           if (!ALL_ROLES.includes(roleKey)) continue;
           nextDrafts[roleKey] = {
-            ...nextDrafts[roleKey],
             model: row.model,
+            systemPrompt: row.system_prompt || nextDrafts[roleKey].systemPrompt,
+            maxTokens: row.max_tokens ?? nextDrafts[roleKey].maxTokens,
+            name: row.name || nextDrafts[roleKey].name,
           };
         }
         setDrafts(nextDrafts);
@@ -762,28 +796,38 @@ export default function ConsolePage() {
     }
   }, [loadingMoreRuns, pastRunsOffset]);
 
+  // handleLoadMore's identity changes on every state update inside a fetch
+  // cycle (loading toggling, offset incrementing). Route the observer
+  // through a ref so those churns don't force the IntersectionObserver
+  // below to be torn down and recreated mid-fetch.
+  const handleLoadMoreRef = useRef(handleLoadMore);
+  useEffect(() => {
+    handleLoadMoreRef.current = handleLoadMore;
+  }, [handleLoadMore]);
+
+  // Infinite scroll: fetch the next page of past runs when the sentinel
+  // at the bottom of the (internally scrolling) list comes into view.
+  // Only re-attaches when the sentinel itself mounts/unmounts (hasMoreRuns
+  // flips), not on every fetch's state changes.
+  useEffect(() => {
+    const sentinel = pastRunsSentinelRef.current;
+    const root = pastRunsScrollRef.current;
+    if (!sentinel || !root || !hasMoreRuns) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) handleLoadMoreRef.current();
+      },
+      { root, rootMargin: "200px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreRuns]);
+
   function retireFinishedCase() {
     if (!running) {
       if (activeCase) setActiveCase(null);
       if (completedCase) setCompletedCase(null);
     }
-  }
-
-  function handleLoadExampleTemplate() {
-    retireFinishedCase();
-    setCaseText(SEED_CASE_TEXT);
-    setDrafts((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev };
-      for (const role of ALL_ROLES) {
-        next[role] = {
-          ...next[role],
-          systemPrompt: AGENT_SYSTEM_PROMPTS[role as keyof typeof AGENT_SYSTEM_PROMPTS] ?? next[role].systemPrompt,
-          name: EXAMPLE_NAMES[role],
-        };
-      }
-      return next;
-    });
   }
 
   function updateDraft(role: AgentRole, patch: Partial<AgentDraft>) {
@@ -792,6 +836,38 @@ export default function ConsolePage() {
       if (!prev) return prev;
       return { ...prev, [role]: { ...prev[role], ...patch } };
     });
+  }
+
+  // No more Save button/dirty-state — model and max-tokens changes in the
+  // Advocates & Judges list persist immediately (model on select, max tokens
+  // on blur). A failed save is never silent — it surfaces as a toast
+  // (docs/toast-message-copy.md), not an inline banner on the row.
+  async function persistRoleField(role: AgentRole, patch: Partial<AgentDraft>) {
+    if (!drafts) return;
+    const merged: AgentDraft = { ...drafts[role], ...patch };
+    setDrafts((prev) => (prev ? { ...prev, [role]: merged } : prev));
+    setSavingRoles((prev) => ({ ...prev, [role]: true }));
+    try {
+      const res = await fetch(`/api/agent-config/${role}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: merged.model, systemPrompt: merged.systemPrompt, maxTokens: merged.maxTokens, name: merged.name }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Couldn't save ${roleLabel(role)}.`);
+      const saved: AgentDraft = {
+        model: body.agent.model,
+        systemPrompt: body.agent.system_prompt,
+        maxTokens: body.agent.max_tokens,
+        name: body.agent.name ?? "",
+      };
+      setDrafts((prev) => (prev ? { ...prev, [role]: saved } : prev));
+    } catch {
+      const id = addToast({ type: "error", message: roleConfigSaveFailedMessage(roleLabel(role, drafts[role]?.name)) });
+      setTimeout(() => removeToast(id), 8000);
+    } finally {
+      setSavingRoles((prev) => ({ ...prev, [role]: false }));
+    }
   }
 
   async function handleSingleModelChange(modelId: string) {
@@ -806,7 +882,6 @@ export default function ConsolePage() {
     for (const role of ALL_ROLES) {
       updateDraft(role, { model: modelId });
     }
-    setSaveError(null);
     try {
       await Promise.all(
         ALL_ROLES.map(async (role) => {
@@ -814,28 +889,25 @@ export default function ConsolePage() {
           const res = await fetch(`/api/agent-config/${role}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model: modelId, systemPrompt: draft.systemPrompt, maxTokens: draft.maxTokens }),
+            body: JSON.stringify({ model: modelId, systemPrompt: draft.systemPrompt, maxTokens: draft.maxTokens, name: draft.name }),
           });
-          if (!res.ok) throw new Error(`Failed to apply model to ${role}`);
+          if (!res.ok) throw new Error(roleLabel(role, draft.name));
           const body = await res.json();
           if (requestId !== modelApplyRef.current) return; // a newer call superseded this one
-          setDrafts((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              [role]: {
-                ...prev[role],
-                model: body.agent.model,
-                systemPrompt: body.agent.system_prompt,
-                maxTokens: body.agent.max_tokens,
-              },
-            };
-          });
+          const saved: AgentDraft = {
+            model: body.agent.model,
+            systemPrompt: body.agent.system_prompt,
+            maxTokens: body.agent.max_tokens,
+            name: body.agent.name ?? "",
+          };
+          setDrafts((prev) => (prev ? { ...prev, [role]: saved } : prev));
         })
       );
     } catch (err) {
       if (requestId === modelApplyRef.current) {
-        setSaveError(err instanceof Error ? err.message : String(err));
+        const failedRoleLabel = err instanceof Error ? err.message : String(err);
+        const id = addToast({ type: "error", message: modelApplyFailedMessage(failedRoleLabel) });
+        setTimeout(() => removeToast(id), 8000);
       }
     }
   }
@@ -847,6 +919,7 @@ export default function ConsolePage() {
     const allNamesSet = ALL_ROLES.every((role) => drafts[role]?.name?.trim());
     return allPromptsSet && allNamesSet;
   }, [drafts, caseText]);
+
 
   function resolveJudgeStance(v: { failed: boolean; verdict_label: string | null; output: string | null }): VerdictStance {
     if (v.failed) return "unknown";
@@ -1089,6 +1162,23 @@ export default function ConsolePage() {
     URL.revokeObjectURL(url);
   }
 
+  // Shared by dossier upload and AI generation — both return the same
+  // 15-field shape (lib/caseFields.ts) and pre-fill drafts identically.
+  function applyCastFields(fields: Record<string, string>) {
+    setCaseText(fields.caseText ?? caseText);
+    setDrafts((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      for (const [key, role] of Object.entries(CAST_PROMPT_MAP)) {
+        if (fields[key]) next[role] = { ...next[role], systemPrompt: fields[key] };
+      }
+      for (const [key, role] of Object.entries(CAST_NAME_MAP)) {
+        if (fields[key]) next[role] = { ...next[role], name: fields[key] };
+      }
+      return next;
+    });
+  }
+
   async function handleUpload(file: File) {
     setUploadError(null);
     setUploadNotice(null);
@@ -1105,36 +1195,7 @@ export default function ConsolePage() {
       }
 
       const fields = body.fields as Record<string, string>;
-      setCaseText(fields.caseText ?? caseText);
-      setDrafts((prev) => {
-        if (!prev) return prev;
-        const promptMap: Record<string, AgentRole> = {
-          defense1: "defense-1",
-          defense2: "defense-2",
-          prosecution1: "prosecution-1",
-          prosecution2: "prosecution-2",
-          judge1: "judge-1",
-          judge2: "judge-2",
-          judge3: "judge-3",
-        };
-        const nameMap: Record<string, AgentRole> = {
-          defense1Name: "defense-1",
-          defense2Name: "defense-2",
-          prosecution1Name: "prosecution-1",
-          prosecution2Name: "prosecution-2",
-          judge1Name: "judge-1",
-          judge2Name: "judge-2",
-          judge3Name: "judge-3",
-        };
-        const next = { ...prev };
-        for (const [key, role] of Object.entries(promptMap)) {
-          if (fields[key]) next[role] = { ...next[role], systemPrompt: fields[key] };
-        }
-        for (const [key, role] of Object.entries(nameMap)) {
-          if (fields[key]) next[role] = { ...next[role], name: fields[key] };
-        }
-        return next;
-      });
+      applyCastFields(fields);
       setUploadNotice("Drafts and agent names loaded from upload — review each panel and fill any missing names before running.");
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : String(err));
@@ -1143,19 +1204,80 @@ export default function ConsolePage() {
     }
   }
 
-  function roleStatus(role: AgentRole): RoleStatus {
-    return deriveRoleStatus(activeCase, role);
+  async function requestCaseGeneration() {
+    setGeneratingCase(true);
+    setGenerateCaseError(null);
+    try {
+      const res = await fetch("/api/generate-case", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? (res.status === 422 ? caseGenerationMessage("incomplete") : CASE_GENERATION_FAILED));
+      retireFinishedCase();
+      applyCastFields(body.fields as Record<string, string>);
+    } catch (err) {
+      setGenerateCaseError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingCase(false);
+    }
   }
 
-  // The classified, browser-safe failure reason for a role that's already
-  // landed (advocate_outputs/verdicts.error_message — sanitized server-side,
-  // see lib/orchestrator/run.ts) — never a raw exception message.
-  function roleErrorMessage(role: AgentRole): string | null {
-    const c = activeCase;
-    if (!c) return null;
-    const isJudge = JUDGE_ROLES.includes(role);
-    const row = isJudge ? c.verdicts.find((v) => v.role === role) : c.advocateOutputs.find((a) => a.role === role);
-    return row?.failed ? row.error_message : null;
+  function handleGenerateCaseClick() {
+    setGenerateCaseError(null);
+    const hasExistingDraftContent =
+      caseText.trim() ||
+      (drafts && ALL_ROLES.some((role) => drafts[role]?.name?.trim() || drafts[role]?.systemPrompt?.trim()));
+    if (hasExistingDraftContent) {
+      setPendingReplaceConfirm("generate");
+      return;
+    }
+    requestCaseGeneration();
+  }
+
+  // Restores the default seed case (prompts/seed-content.ts) — the same
+  // content the app opens with — so a user who cleared or overwrote fields
+  // always has a way back to a known-good state.
+  function loadExampleCase() {
+    setGenerateCaseError(null);
+    retireFinishedCase();
+    const fields: Record<string, string> = { caseText: SEED_CASE_TEXT };
+    for (const [key, role] of Object.entries(CAST_PROMPT_MAP)) {
+      fields[key] = AGENT_SYSTEM_PROMPTS[role as keyof typeof AGENT_SYSTEM_PROMPTS] ?? "";
+    }
+    for (const [key, role] of Object.entries(CAST_NAME_MAP)) {
+      fields[key] = EXAMPLE_NAMES[role];
+    }
+    applyCastFields(fields);
+  }
+
+  function handleLoadExampleClick() {
+    setGenerateCaseError(null);
+    const hasExistingDraftContent =
+      caseText.trim() ||
+      (drafts && ALL_ROLES.some((role) => drafts[role]?.name?.trim() || drafts[role]?.systemPrompt?.trim()));
+    if (hasExistingDraftContent) {
+      setPendingReplaceConfirm("example");
+      return;
+    }
+    loadExampleCase();
+  }
+
+  function confirmReplaceDraft() {
+    const action = pendingReplaceConfirm;
+    setPendingReplaceConfirm(null);
+    if (action === "example") loadExampleCase();
+    else requestCaseGeneration();
+  }
+
+
+  const filteredPastRuns = useMemo(() => {
+    if (pastRunsFilter === "all") return pastRuns;
+    return pastRuns.filter((r) => r.status === pastRunsFilter);
+  }, [pastRuns, pastRunsFilter]);
+
+  function roleStatus(role: AgentRole): RoleStatus {
+    return deriveRoleStatus(activeCase, role);
   }
 
   if (loading) return <main><p>Loading…</p></main>;
@@ -1163,116 +1285,85 @@ export default function ConsolePage() {
     return (
       <main>
         <div className="error-banner">Failed to load: {loadError}</div>
-        <p className="hint" style={{ color: "#d6cdb8" }}>Check that SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are set in .env.local and the schema from supabase/migrations/0001_init.sql has been run, then seeded with `npm run seed`.</p>
+        <p className="hint">Check that SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are set in .env.local and the schema from supabase/migrations/0001_init.sql has been run, then seeded with `npm run seed`.</p>
       </main>
     );
   }
 
   const showSeeResultsBreadcrumb = completedCase !== null && !running;
 
-  function renderAgentCard(role: AgentRole) {
+  // The 7 role rows in the Advocates & Judges list — name/system-prompt come
+  // from the default example case, saved config, Upload dossier, or Generate
+  // with AI only; the only per-row inputs left here are the two operational
+  // knobs that used to live in the now-removed per-role cards: model and max
+  // tokens.
+  function renderCastRow(role: AgentRole) {
     const draft = drafts![role];
     const status = roleStatus(role);
     const retryInfo = activeCase?.retrying?.[role];
-    const errorMessage = roleErrorMessage(role);
     const stance = ROLE_META[role].stance;
     const dropdownDisabled = modelMode === "single";
     const statusLabel = status === "retrying" && retryInfo ? `retrying ${retryInfo.attempt}/${retryInfo.maxAttempts}` : status;
 
     return (
-      <div key={role} className={`agent-card-frame ${stance} status-${status}`}>
-        <div className={`panel agent-card ${stance}`}>
-          <div className="agent-panel-header-new">
-            <span className={`role-icon ${stance}`}><ROLE_ICON stance={stance} /></span>
-            <div className="role-titles">
-              <span className="role-title">{ROLE_META[role].role}</span>
-              <span className="role-name">{draft.name || <em style={{ opacity: 0.5 }}>No name set</em>}</span>
-              <span className="role-subtitle">{ROLE_SUBTITLE[role]}</span>
-            </div>
-            {status !== "idle" && (
-              <div style={{ marginLeft: "auto" }}>
-                {status === "failed" && errorMessage ? (
-                  <span className="info-tooltip-anchor">
-                    <button type="button" className="status-badge failed status-badge-btn clickable" tabIndex={0}>
-                      failed
-                    </button>
-                    <span className="info-tooltip-text">{errorMessage}</span>
+      <div key={role} className={`cast-row ${stance} status-${status}`}>
+        <Avatar stance={stance} />
+
+        <div className="cast-row-info">
+          <span className="cast-row-name-line">
+            <span className="cast-row-name">{draft.name || <em style={{ opacity: 0.5 }}>No name set</em>}</span>
+            {/* Per-role failures/retries surface as toasts (docs/toast-message-copy.md),
+                not an inline tooltip — see the poll loop's per-role toast diffing. */}
+            {status !== "idle" && <span className={`status-badge ${status}`}>{statusLabel}</span>}
+          </span>
+          <span className="cast-row-role">{ROLE_META[role].role} · {ROLE_SUBTITLE[role]}</span>
+        </div>
+
+        <div className="cast-row-controls">
+          <div className="cast-row-field model">
+            <label>Model</label>
+            <select
+              value={draft.model}
+              disabled={dropdownDisabled}
+              onChange={(e) => persistRoleField(role, { model: e.target.value })}
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="cast-row-field max-tokens">
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              Max tokens
+              <span className="item-hints">
+                <span className="hint" data-position="4">
+                  <span className="hint-icon-wrap">
+                    <span className="hint-dot">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="8" />
+                        <line x1="12" y1="12" x2="12" y2="16" />
+                      </svg>
+                    </span>
+                    <span className="hint-radius" />
                   </span>
-                ) : (
-                  <span className={`status-badge ${status}`}>{statusLabel}</span>
-                )}
-              </div>
-            )}
-          </div>
-
-          <label>
-            Name <span style={{ color: "#c0a060", marginLeft: 2 }}>*</span>
-          </label>
-          <input
-            type="text"
-            value={draft.name}
-            placeholder={
-              stance === "defense"
-                ? "e.g. Jane Doe — Defense Counsel"
-                : stance === "prosecution"
-                ? "e.g. John Smith — State Prosecutor"
-                : "e.g. Ruth Bader Ginsburg — Presiding Judge"
-            }
-            onChange={(e) => updateDraft(role, { name: e.target.value })}
-          />
-
-          <label>Model</label>
-          <select
-            value={draft.model}
-            disabled={dropdownDisabled}
-            onChange={(e) => updateDraft(role, { model: e.target.value })}
-          >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>{m.label}</option>
-            ))}
-          </select>
-
-          <label>
-            System prompt <span style={{ color: "#c0a060", marginLeft: 2 }}>*</span>
-          </label>
-          <textarea
-            value={draft.systemPrompt}
-            placeholder={
-              stance === "defense"
-                ? "Define this defense advocate's identity, legal philosophy, and argumentation style.\n\nExample: You are [Name], a defense attorney known for [approach]. Your role is to challenge the prosecution's evidence and argue for the defendant's acquittal. You emphasise [legal principles]…"
-                : stance === "prosecution"
-                ? "Define this prosecutor's identity, legal philosophy, and argumentation style.\n\nExample: You are [Name], a state prosecutor with a reputation for [approach]. Your role is to prove the defendant's guilt beyond reasonable doubt. You focus on [legal principles]…"
-                : "Define this judge's background, legal philosophy, and decision-making approach.\n\nExample: You are [Name], a [court/background] judge known for [judicial philosophy]. You assess arguments impartially, weigh evidence carefully, and deliver a reasoned verdict of Guilty or Not Guilty…"
-            }
-            onChange={(e) => updateDraft(role, { systemPrompt: e.target.value })}
-            rows={6}
-          />
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-            <button type="button" className="clear-btn" disabled={!draft.systemPrompt.trim()} onClick={() => updateDraft(role, { systemPrompt: "" })}>Clear</button>
-          </div>
-
-          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            Max tokens
-            <span className="info-tooltip-anchor">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.55, cursor: "default", flexShrink: 0 }}>
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="8" />
-                <line x1="12" y1="12" x2="12" y2="16" />
-              </svg>
-              <span className="info-tooltip-text">
-                Tokens are the unit the model counts internally — roughly 1.5 tokens per word.
-                <br /><br />
-                Default: advocates 1,200 tokens ≈ 800 words, judges 1,600 tokens ≈ 1,067 words.
+                  <span className="hint-content">
+                    Tokens are the unit the model counts internally — roughly 1.5 tokens per word.
+                    <br /><br />
+                    Default: advocates 1,200 tokens ≈ 800 words, judges 1,600 tokens ≈ 1,067 words.
+                  </span>
+                </span>
               </span>
-            </span>
-          </label>
-          <input
-            type="number"
-            min={1}
-            value={draft.maxTokens}
-            onChange={(e) => updateDraft(role, { maxTokens: Number(e.target.value) })}
-          />
-
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={draft.maxTokens}
+              onChange={(e) => updateDraft(role, { maxTokens: Number(e.target.value) })}
+              onBlur={() => persistRoleField(role, {})}
+            />
+          </div>
         </div>
       </div>
     );
@@ -1303,185 +1394,201 @@ export default function ConsolePage() {
         />
       )}
 
-      <nav className="topbar">
-        <div className="topbar-brand">
-          <span className="logo-icon"><BuildingIcon /></span>
-          <span className="brand-name">TRIBUNAL</span>
-          <span className="brand-sub">Case Workspace</span>
-        </div>
-      </nav>
+      <header className="app-header">
+        <img src="/tribunal-title.png" alt="The Tribunal" className="app-header-logo" />
+      </header>
 
-      <div className="hero">
-        <div className="hero-icon"><BuildingIcon /></div>
-        <h1>The Tribunal</h1>
-        <div className="ornate-divider"><span className="line" /><span className="dot" /><span className="line" /></div>
-      </div>
-
-      <section>
-        <div className="section-heading-row">
-          <h2 style={{ margin: 0 }}>
-            Charge Sheet <span style={{ color: "#c0a060", marginLeft: 2 }}>*</span>
-          </h2>
-        </div>
-        <div className="panel" style={{ marginTop: 10 }}>
-          <textarea
-            value={caseText}
-            placeholder={"Describe the case: the charge, the parties involved, the agreed facts, and the legal question to be decided.\n\nExample:\nCase T-001: The State v. [Defendant]\nCharge: [Alleged offence]\nAgreed facts: …\nLegal question: …\n\nYou can also upload a PDF dossier to auto-fill all fields."}
-            onChange={(e) => {
-              retireFinishedCase();
-              setCaseText(e.target.value);
-            }}
-            rows={10}
-          />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
-            <button type="button" className="breadcrumb-btn" onClick={handleLoadExampleTemplate}>
-              Load Example Case
-            </button>
-            <button type="button" className="clear-btn" disabled={!caseText.trim()} onClick={() => setCaseText("")}>Clear</button>
-          </div>
-        </div>
-      </section>
-
-      <div className="two-col-row">
-        <section className="col">
-          <h2>Upload dossier</h2>
-          <div className="panel upload-panel">
-            <div
-              className="upload-dropzone"
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const f = e.dataTransfer.files?.[0];
-                if (f) handleUpload(f);
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf"
-                disabled={uploading}
-                style={{ display: "none" }}
+      <section ref={chargeSheetRef}>
+        <div className="charge-sheet-layout">
+          <div className="charge-sheet-col">
+            <div className="section-heading-row">
+              <h2 style={{ margin: 0 }}>
+                Charge Sheet <span style={{ color: "var(--accent-light)", marginLeft: 2 }}>*</span>
+              </h2>
+            </div>
+            <Card style={{ marginTop: 10 }}>
+              <textarea
+                className="charge-sheet-textarea"
+                value={caseText}
+                placeholder={"Describe the case: the charge, the parties involved, the agreed facts, and the legal question to be decided.\n\nExample:\nCase T-001: The State v. [Defendant]\nCharge: [Alleged offence]\nAgreed facts: …\nLegal question: …\n\nYou can also upload a PDF dossier to auto-fill all fields."}
                 onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleUpload(f);
-                  e.target.value = "";
+                  retireFinishedCase();
+                  setCaseText(e.target.value);
                 }}
+                rows={10}
               />
-              <DownloadIcon />
-              <p className="upload-text"><strong>Choose a file</strong> or drag it here.</p>
-            </div>
-            <label>.pdf only, max 5MB — pre-fills charge sheet, system prompts and agent names</label>
-            {uploading && <span className="hint">Extracting…</span>}
-            {uploadError && <div className="error-banner">{uploadError}</div>}
-            {uploadNotice && <p className="hint">{uploadNotice}</p>}
-          </div>
-        </section>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 6 }}>
+                <button type="button" className="clear-btn" disabled={!caseText.trim()} onClick={() => setCaseText("")}>Clear</button>
+              </div>
 
-        <section className="col">
-          <h2>Model selection</h2>
-          <div className="panel">
-            <div className="model-mode-row">
-              <label className="mode-option">
-                <input type="radio" checked={modelMode === "single"} onChange={() => handleSingleModelChange(singleModel)} />
-                <span className="radio" />
-                <span className="mode-option-text">Single model for all</span>
-              </label>
-              <label className="mode-option">
-                <input type="radio" checked={modelMode === "different"} onChange={() => setModelMode("different")} />
-                <span className="radio" />
-                <span className="mode-option-text">Different model for all (manual pick)</span>
-              </label>
-            </div>
-            <select
-              value={singleModel}
-              onChange={(e) => handleSingleModelChange(e.target.value)}
-              disabled={modelMode === "different"}
-              style={{ marginTop: 10, opacity: modelMode === "different" ? 0.45 : 1 }}
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.label}</option>
-              ))}
-            </select>
-            {saveError && <div className="error-banner" style={{ marginTop: 10 }}>{saveError}</div>}
-          </div>
-        </section>
-      </div>
-
-      <section>
-        <div className="section-divider">
-          <span className="line" />
-          <span className="label">Advocates</span>
-          <span className="line" />
-        </div>
-        <div className="agent-grid">{ADVOCATE_ROLES.map((role) => renderAgentCard(role))}</div>
-
-        <div className="section-divider">
-          <span className="line" />
-          <span className="icon"><ScaleIcon /></span>
-          <span className="label">Judges&rsquo; Panel</span>
-          <span className="line" />
-        </div>
-        <div className="agent-grid">{JUDGE_ROLES.map((role) => renderAgentCard(role))}</div>
-      </section>
-
-      <section>
-        <div className="run-row">
-          <div className="generate-row">
-            <div className={`btn-tooltip-wrapper${!canRun && !running ? " show-tooltip" : ""}`}>
-              <div className="btn-wrapper">
-                <button
-                  className={`btn ${running ? "is-loading" : ""}`}
-                  onClick={handleRun}
-                  disabled={!canRun || running}
-                >
-                  <GenerateIcon />
-                  <span className="txt-wrapper">
-                    <span className="txt-1">{letterSpans("Generate", "g")}</span>
-                    <span className="txt-2">{letterSpans("Generating", "i")}</span>
-                  </span>
+              <div className="generate-case-row">
+                <button type="button" className="btn2" disabled={generatingCase} onClick={handleGenerateCaseClick}>
+                  <span className="spn2">{generatingCase ? "Generating…" : "Generate case with AI"}</span>
+                </button>
+                <button type="button" className="btn2" onClick={handleLoadExampleClick}>
+                  <span className="spn2">Load an example case</span>
                 </button>
               </div>
-              <span className="btn-disabled-tooltip">All required fields must be filled</span>
-            </div>
-            {running && <span className="btn-loader" aria-label="Generating" />}
-
-            {/* See Results button — appears after generation completes */}
-            {showSeeResultsBreadcrumb && (
-              <div className="btn-wrapper see-results-breadcrumb">
-                <button
-                  type="button"
-                  className="btn btn-results"
-                  onClick={() => setShowResultsModal(true)}
-                >
-                  <EyeIcon className="btn-svg" />
-                  <span className="btn-results-label">
-                    {letterSpans("See", "sr1")}
-                    <span className="btn-word-gap" aria-hidden="true" />
-                    {letterSpans("results", "sr2")}
+              {pendingReplaceConfirm && (
+                <div className="replace-draft-banner">
+                  <span>
+                    Replace your case text and the 7 role names/prompts with{" "}
+                    {pendingReplaceConfirm === "example" ? "the example case" : "a newly generated case"} and cast?
+                    Nothing is saved until you click Save on each panel below.
                   </span>
-                </button>
+                  <button type="button" className="breadcrumb-btn" onClick={confirmReplaceDraft}>Replace</button>
+                  <button type="button" className="clear-btn" onClick={() => setPendingReplaceConfirm(null)}>Cancel</button>
+                </div>
+              )}
+              {generateCaseError && <div className="error-banner" style={{ marginTop: 8 }}>{generateCaseError}</div>}
+
+              <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                <h2>Upload dossier</h2>
+                <div
+                  className="upload-dropzone"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) handleUpload(f);
+                  }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf"
+                    disabled={uploading}
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleUpload(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  <DownloadIcon />
+                  <p className="upload-text"><strong>Choose a file</strong> or drag it here.</p>
+                </div>
+                <label>.pdf only, max 5MB — pre-fills charge sheet, system prompts and agent names</label>
+                {uploading && <span className="hint">Extracting…</span>}
+                {uploadError && <div className="error-banner">{uploadError}</div>}
+                {uploadNotice && <p className="hint">{uploadNotice}</p>}
               </div>
-            )}
+            </Card>
+
+            <div className="model-selection-block">
+              <div className="section-heading-row">
+                <h2 style={{ margin: 0 }}>Model Selection</h2>
+              </div>
+              <Card glow style={{ marginTop: 10 }}>
+                <div className="model-mode-row radio-inputs">
+                  <label className="radio">
+                    <input type="radio" checked={modelMode === "single"} onChange={() => handleSingleModelChange(singleModel)} />
+                    <span className="radio-item">Single model for all</span>
+                  </label>
+                  <label className="radio">
+                    <input type="radio" checked={modelMode === "different"} onChange={() => setModelMode("different")} />
+                    <span className="radio-item">Different model for all (manual pick)</span>
+                  </label>
+                </div>
+
+                <div className="row" style={{ marginTop: 10 }}>
+                  <select
+                    value={singleModel}
+                    disabled={modelMode === "different"}
+                    onChange={(e) => handleSingleModelChange(e.target.value)}
+                    style={{ flex: 1 }}
+                  >
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </Card>
+            </div>
+          </div>
+
+          <div className="advocates-judges-col">
+            <div className="section-heading-row">
+              <h2 style={{ margin: 0 }}>Advocates &amp; Judges</h2>
+            </div>
+            <Card style={{ marginTop: 10 }}>
+              {ALL_ROLES.map((role) => renderCastRow(role))}
+            </Card>
           </div>
         </div>
-        {runError && <div className="error-banner">{runError}</div>}
-        {runTimedOut && (
-          <div className="error-banner" style={{ background: "rgba(180,100,0,0.15)", borderColor: "rgba(180,100,0,0.4)" }}>
-            The run is taking longer than expected (over 5 minutes). The pipeline may still be processing in the background — check Past Runs later for results, or wait here.
+
+        <div className="run-actions-section">
+          <div className="run-row">
+            <div className="generate-row">
+              <div className={`btn-tooltip-wrapper${!canRun && !running ? " show-tooltip" : ""}`}>
+                <div className="btn-wrapper">
+                  <button
+                    className={`btn ${running ? "is-loading" : ""}`}
+                    onClick={handleRun}
+                    disabled={!canRun || running}
+                  >
+                    <GenerateIcon />
+                    <span className="txt-wrapper">
+                      <span className="txt-1">{letterSpans("Generate", "g")}</span>
+                      <span className="txt-2">{letterSpans("Generating", "i")}</span>
+                    </span>
+                  </button>
+                </div>
+                <span className="btn-disabled-tooltip">All required fields must be filled</span>
+              </div>
+              {running && <span className="btn-loader" aria-label="Generating" />}
+
+              {/* See Results button — appears after generation completes */}
+              {showSeeResultsBreadcrumb && (
+                <div className="btn-wrapper see-results-breadcrumb">
+                  <button
+                    type="button"
+                    className="btn btn-results"
+                    onClick={() => setShowResultsModal(true)}
+                  >
+                    <EyeIcon className="btn-svg" />
+                    <span className="btn-results-label">
+                      {letterSpans("See", "sr1")}
+                      <span className="btn-word-gap" aria-hidden="true" />
+                      {letterSpans("results", "sr2")}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        )}
+          {runError && <div className="error-banner">{runError}</div>}
+          {runTimedOut && (
+            <div className="error-banner" style={{ background: "rgba(251, 191, 36, 0.1)", borderColor: "rgba(251, 191, 36, 0.4)", color: "var(--status-partial)" }}>
+              The run is taking longer than expected (over 5 minutes). The pipeline may still be processing in the background — check Past Runs later for results, or wait here.
+            </div>
+          )}
+        </div>
       </section>
 
-
-      <section>
-        <h2>Past runs</h2>
-        <div className="panel">
-          {pastRuns.length === 0 && <p className="hint">No completed runs yet.</p>}
-          <div className="past-runs-scroll">
-            {pastRuns.map((c) => (
+      <section ref={pastRunsSectionRef}>
+        <div className="section-heading-row" style={{ marginBottom: 10 }}>
+          <h2 style={{ margin: 0 }}>Past runs</h2>
+        </div>
+        <SegmentedControl
+          options={[
+            { value: "all", label: "All" },
+            { value: "complete", label: "Complete" },
+            { value: "partial-failure", label: "Partial" },
+            { value: "failed", label: "Failed" },
+          ]}
+          value={pastRunsFilter}
+          onChange={setPastRunsFilter}
+        />
+        <Card style={{ marginTop: 12 }}>
+          {filteredPastRuns.length === 0 && (
+            <p className="hint">{pastRuns.length === 0 ? "No completed runs yet." : "No runs match this filter."}</p>
+          )}
+          <div className="past-runs-scroll" ref={pastRunsScrollRef}>
+            {filteredPastRuns.map((c) => (
               <div key={c.id} className="past-run-row">
-                <span className={`status-badge ${c.status}`}>{c.status}</span>
+                <StatusPill status={c.status} />
                 <span className="past-run-preview">{c.case_text}</span>
                 <span className="hint">{new Date(c.submitted_at).toLocaleString()}</span>
                 <span className="hint past-run-meta">
@@ -1507,19 +1614,13 @@ export default function ConsolePage() {
                 </button>
               </div>
             ))}
+            {hasMoreRuns && (
+              <div ref={pastRunsSentinelRef} className="past-runs-sentinel">
+                {loadingMoreRuns && <span className="hint">Loading…</span>}
+              </div>
+            )}
           </div>
-          {hasMoreRuns && (
-            <button
-              type="button"
-              className="secondary"
-              style={{ marginTop: 10, width: "100%" }}
-              onClick={handleLoadMore}
-              disabled={loadingMoreRuns}
-            >
-              {loadingMoreRuns ? "Loading…" : "Load more"}
-            </button>
-          )}
-        </div>
+        </Card>
       </section>
     </main>
   );
