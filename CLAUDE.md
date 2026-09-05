@@ -43,9 +43,11 @@ extra scrutiny — see `specs/security-boundary.md` and the `code-review` skill.
    row (`attempt_number` 1–3) before the retry fires, not just the final outcome.
 4. **Tokens/cost are real or absent, never estimated.** A response without OpenRouter's real
    `usage` object is treated as a *failed* call, not a partial success with guessed numbers.
-5. **`max_tokens` is clamped server-side in two places**, regardless of what the browser sends:
-   at save (`PUT /api/agent-config/:role`) and again at call time (`lib/orchestrator/run.ts`).
-   `lib/constants.ts`'s `MAX_TOKENS_CAP` / `maxTokensCapFor()` is the one place that changes.
+5. **`max_tokens` is clamped/floored server-side in two places**, regardless of what the browser
+   sends: at save (`PUT /api/agent-config/:role`) and again at call time (`lib/orchestrator/run.ts`).
+   `lib/constants.ts`'s `MAX_TOKENS_CAP` / `maxTokensCapFor()` (ceiling) and `MIN_TOKENS_FLOOR` /
+   `minTokensFloorFor()` (floor, below which a completion can't fit a coherent response) are the
+   only places that change.
 6. **A missing/failed advocate output is marked, never dropped.** Judges see an explicit
    `UNAVAILABLE_MARKER` for any advocate slot that never produced output — no silent gap.
 7. **No auth, single user, by design.** Don't add login/session/multi-tenant scaffolding unless

@@ -16,6 +16,7 @@ import {
   UNAVAILABLE_MARKER,
   isAdvocate,
   maxTokensCapFor,
+  minTokensFloorFor,
   stanceOf,
   type AgentRole,
 } from "@/lib/constants";
@@ -302,7 +303,7 @@ export async function runCase(caseId: string, caseText: string, agents: RunAgent
       const agent = byRole.get(role);
       if (!agent || !agent.systemPrompt.trim()) return null;
 
-      const maxTokens = Math.min(agent.maxTokens, maxTokensCapFor(role));
+      const maxTokens = Math.max(Math.min(agent.maxTokens, maxTokensCapFor(role)), minTokensFloorFor(role));
       const outcome = await attemptWithRetries(
         supabase,
         caseId,
@@ -366,7 +367,7 @@ export async function runCase(caseId: string, caseText: string, agents: RunAgent
       const agent = byRole.get(role);
       if (!agent || !agent.systemPrompt.trim()) return null; // silently excluded, §4.1
 
-      const maxTokens = Math.min(agent.maxTokens, maxTokensCapFor(role));
+      const maxTokens = Math.max(Math.min(agent.maxTokens, maxTokensCapFor(role)), minTokensFloorFor(role));
       const outcome = await attemptWithRetries(
         supabase,
         caseId,

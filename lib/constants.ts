@@ -35,6 +35,19 @@ export function maxTokensCapFor(role: AgentRole): number {
   return isAdvocate(role) ? MAX_TOKENS_CAP.advocate : MAX_TOKENS_CAP.judge;
 }
 
+// Hard server-side floors, enforced at save-time (PUT /api/agent-config/:role) and
+// call-time (orchestrator). Below this, a completion can't fit a coherent argument
+// (advocate) or a reasoned opinion reviewing all 4 arguments (judge) — the app would
+// be shipping a call it already knows will be truncated into nonsense.
+export const MIN_TOKENS_FLOOR: Record<"advocate" | "judge", number> = {
+  advocate: 300,
+  judge: 400,
+};
+
+export function minTokensFloorFor(role: AgentRole): number {
+  return isAdvocate(role) ? MIN_TOKENS_FLOOR.advocate : MIN_TOKENS_FLOOR.judge;
+}
+
 // Cost-optimized 7-model curated pool, §9. Kept server-side only — the browser
 // gets this via GET /api/models, never hardcodes it itself.
 //

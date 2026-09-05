@@ -1,8 +1,9 @@
 // PUT /api/agent-config/:role — update one role's config. §8.
-// Server clamps max_tokens to the hard cap regardless of what's sent (§11).
+// Server clamps max_tokens to the hard cap and rejects below the hard floor
+// regardless of what's sent (§11).
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import { ALL_ROLES, CURATED_MODELS, maxTokensCapFor, type AgentRole } from "@/lib/constants";
+import { ALL_ROLES, CURATED_MODELS, maxTokensCapFor, minTokensFloorFor, type AgentRole } from "@/lib/constants";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   }
   if (typeof maxTokens !== "number" || maxTokens <= 0) {
     return NextResponse.json({ error: "maxTokens must be a positive number" }, { status: 400 });
+  }
+  const minTokens = minTokensFloorFor(role as AgentRole);
+  if (maxTokens < minTokens) {
+    return NextResponse.json(
+      { error: `maxTokens must be at least ${minTokens} for this role` },
+      { status: 400 }
+    );
   }
   if (name !== undefined && typeof name !== "string") {
     return NextResponse.json({ error: "name must be a string" }, { status: 400 });

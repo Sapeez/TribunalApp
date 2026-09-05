@@ -15,7 +15,7 @@ The live, editable config for each of the 7 roles. `role` is the primary key:
 | `role`          | text PK     | one of the 7 roles above                               |
 | `model`         | text        | OpenRouter model id                                    |
 | `system_prompt` | text        |                                                        |
-| `max_tokens`    | integer     | clamped server-side to `MAX_TOKENS_CAP` on every write |
+| `max_tokens`    | integer     | clamped server-side to `MAX_TOKENS_CAP` (ceiling) and rejected below `MIN_TOKENS_FLOOR` (floor) on every write |
 | `name`          | text        | added in `0006` — persisted display name, written by the dashboard's per-panel Save (`PUT /api/agent-config/:role`); nullable, distinct from the per-run `name` snapshotted into `advocate_outputs`/`verdicts` |
 | `updated_at`    | timestamptz |                                                        |
 

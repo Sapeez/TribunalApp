@@ -1408,6 +1408,13 @@ button.secondary {
   }
 }
 
+input.field-invalid,
+input.field-invalid:focus,
+input.field-invalid:focus-visible {
+  border-color: var(--status-failed);
+  box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.15);
+}
+
 /* -------------------------------------------------- generate button tooltip */
 
 .btn-tooltip-wrapper {

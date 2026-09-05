@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import JSZip from "jszip";
 import { CASE_TEXT as SEED_CASE_TEXT, AGENT_SYSTEM_PROMPTS } from "@/prompts/seed-content";
-import { ADVOCATE_ROLES, JUDGE_ROLES, ALL_ROLES, type AgentRole, type ModelTier } from "@/lib/constants";
+import { ADVOCATE_ROLES, JUDGE_ROLES, ALL_ROLES, isAdvocate, minTokensFloorFor, type AgentRole, type ModelTier } from "@/lib/constants";
 import {
   agentFailedFallback,
   agentRetryingFallback,
@@ -916,13 +916,18 @@ export default function ConsolePage() {
     }
   }
 
+  const belowMinTokensRoles = useMemo(() => {
+    if (!drafts) return [];
+    return ALL_ROLES.filter((role) => (drafts[role]?.maxTokens ?? 0) < minTokensFloorFor(role));
+  }, [drafts]);
+
   const canRun = useMemo(() => {
     if (!drafts) return false;
     if (!caseText.trim()) return false;
     const allPromptsSet = ALL_ROLES.every((role) => drafts[role]?.systemPrompt?.trim());
     const allNamesSet = ALL_ROLES.every((role) => drafts[role]?.name?.trim());
-    return allPromptsSet && allNamesSet;
-  }, [drafts, caseText]);
+    return allPromptsSet && allNamesSet && belowMinTokensRoles.length === 0;
+  }, [drafts, caseText, belowMinTokensRoles]);
 
 
   function resolveJudgeStance(v: { failed: boolean; verdict_label: string | null; output: string | null }): VerdictStance {
@@ -1343,13 +1348,17 @@ export default function ConsolePage() {
                     Tokens are the unit the model counts internally — roughly 1.5 tokens per word.
                     <br /><br />
                     Default: advocates 1,200 tokens ≈ 800 words, judges 1,600 tokens ≈ 1,067 words.
+                    <br /><br />
+                    Minimum: {minTokensFloorFor(role)} tokens — below that, the model doesn&apos;t have
+                    enough room to produce a coherent {isAdvocate(role) ? "argument" : "opinion"}.
                   </span>
                 </span>
               </span>
             </label>
             <input
               type="number"
-              min={1}
+              min={minTokensFloorFor(role)}
+              className={draft.maxTokens < minTokensFloorFor(role) ? "field-invalid" : undefined}
               value={draft.maxTokens}
               onChange={(e) => updateDraft(role, { maxTokens: Number(e.target.value) })}
               onBlur={() => persistRoleField(role, {})}
@@ -1524,7 +1533,11 @@ export default function ConsolePage() {
                     </span>
                   </button>
                 </div>
-                <span className="btn-disabled-tooltip">All required fields must be filled</span>
+                <span className="btn-disabled-tooltip">
+                  {belowMinTokensRoles.length > 0
+                    ? "Max tokens is below the minimum for some roles"
+                    : "All required fields must be filled"}
+                </span>
               </div>
               {running && <span className="btn-loader" aria-label="Generating" />}
 
