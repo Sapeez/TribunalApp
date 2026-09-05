@@ -137,6 +137,51 @@ textarea {
   resize: none;
 }
 
+.charge-sheet-textarea:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.charge-sheet-field-wrap {
+  position: relative;
+}
+
+/* Loading state shown over the disabled charge-sheet field while
+   "Generate case with AI" is running — adapted from the Uiverse.io
+   letter-fade loader by Praashoo7. */
+.charge-sheet-loader {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.5em;
+  color: var(--text);
+}
+
+.charge-sheet-loader span {
+  opacity: 0;
+  text-shadow: 2px 2px 3px rgba(0, 0, 0, 0.5);
+  animation: charge-sheet-loader-fade 2s ease-in-out infinite;
+}
+
+@keyframes charge-sheet-loader-fade {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
 label {
   display: block;
   font-size: 12px;
@@ -2111,18 +2156,5 @@ button.secondary {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 10px;
-}
-
-.replace-draft-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  color: var(--status-partial);
-  font-size: 12.5px;
 }
 

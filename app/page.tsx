@@ -693,9 +693,6 @@ export default function ConsolePage() {
 
   const [generatingCase, setGeneratingCase] = useState(false);
   const [generateCaseError, setGenerateCaseError] = useState<string | null>(null);
-  // Which replace action is pending confirmation — "generate" (AI) or "example"
-  // (load the default seed case) — or null when no banner is shown.
-  const [pendingReplaceConfirm, setPendingReplaceConfirm] = useState<"generate" | "example" | null>(null);
 
   // Toast state
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -1225,13 +1222,6 @@ export default function ConsolePage() {
 
   function handleGenerateCaseClick() {
     setGenerateCaseError(null);
-    const hasExistingDraftContent =
-      caseText.trim() ||
-      (drafts && ALL_ROLES.some((role) => drafts[role]?.name?.trim() || drafts[role]?.systemPrompt?.trim()));
-    if (hasExistingDraftContent) {
-      setPendingReplaceConfirm("generate");
-      return;
-    }
     requestCaseGeneration();
   }
 
@@ -1253,21 +1243,7 @@ export default function ConsolePage() {
 
   function handleLoadExampleClick() {
     setGenerateCaseError(null);
-    const hasExistingDraftContent =
-      caseText.trim() ||
-      (drafts && ALL_ROLES.some((role) => drafts[role]?.name?.trim() || drafts[role]?.systemPrompt?.trim()));
-    if (hasExistingDraftContent) {
-      setPendingReplaceConfirm("example");
-      return;
-    }
     loadExampleCase();
-  }
-
-  function confirmReplaceDraft() {
-    const action = pendingReplaceConfirm;
-    setPendingReplaceConfirm(null);
-    if (action === "example") loadExampleCase();
-    else requestCaseGeneration();
   }
 
 
@@ -1407,16 +1383,26 @@ export default function ConsolePage() {
               </h2>
             </div>
             <Card style={{ marginTop: 10 }}>
-              <textarea
-                className="charge-sheet-textarea"
-                value={caseText}
-                placeholder={"Describe the case: the charge, the parties involved, the agreed facts, and the legal question to be decided.\n\nExample:\nCase T-001: The State v. [Defendant]\nCharge: [Alleged offence]\nAgreed facts: …\nLegal question: …\n\nYou can also upload a PDF dossier to auto-fill all fields."}
-                onChange={(e) => {
-                  retireFinishedCase();
-                  setCaseText(e.target.value);
-                }}
-                rows={10}
-              />
+              <div className="charge-sheet-field-wrap">
+                <textarea
+                  className="charge-sheet-textarea"
+                  value={caseText}
+                  placeholder={"Describe the case: the charge, the parties involved, the agreed facts, and the legal question to be decided.\n\nExample:\nCase T-001: The State v. [Defendant]\nCharge: [Alleged offence]\nAgreed facts: …\nLegal question: …\n\nYou can also upload a PDF dossier to auto-fill all fields."}
+                  disabled={generatingCase}
+                  onChange={(e) => {
+                    retireFinishedCase();
+                    setCaseText(e.target.value);
+                  }}
+                  rows={10}
+                />
+                {generatingCase && (
+                  <div className="charge-sheet-loader" aria-live="polite">
+                    {"Generating".split("").map((ch, i) => (
+                      <span key={i} style={{ animationDelay: `${0.2 * (i + 1)}s` }}>{ch}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="generate-case-row" style={{ justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button type="button" className="clear-btn btn-bubble-hover" disabled={generatingCase} onClick={handleGenerateCaseClick}>
@@ -1428,17 +1414,6 @@ export default function ConsolePage() {
                 </div>
                 <button type="button" className="clear-btn btn-bubble-hover" disabled={!caseText.trim()} onClick={() => setCaseText("")}>Clear</button>
               </div>
-              {pendingReplaceConfirm && (
-                <div className="replace-draft-banner">
-                  <span>
-                    Replace your case text and the 7 role names/prompts with{" "}
-                    {pendingReplaceConfirm === "example" ? "the example case" : "a newly generated case"} and cast?
-                    Nothing is saved until you click Save on each panel below.
-                  </span>
-                  <button type="button" className="breadcrumb-btn" onClick={confirmReplaceDraft}>Replace</button>
-                  <button type="button" className="clear-btn" onClick={() => setPendingReplaceConfirm(null)}>Cancel</button>
-                </div>
-              )}
               {generateCaseError && <div className="error-banner" style={{ marginTop: 8 }}>{generateCaseError}</div>}
 
               <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 14 }}>

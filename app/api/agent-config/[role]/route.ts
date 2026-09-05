@@ -2,7 +2,7 @@
 // Server clamps max_tokens to the hard cap regardless of what's sent (§11).
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import { ALL_ROLES, maxTokensCapFor, type AgentRole } from "@/lib/constants";
+import { ALL_ROLES, CURATED_MODELS, maxTokensCapFor, type AgentRole } from "@/lib/constants";
 
 export const runtime = "nodejs";
 
@@ -23,6 +23,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   if (!model || typeof model !== "string") {
     return NextResponse.json({ error: "model is required" }, { status: 400 });
+  }
+  if (!CURATED_MODELS.some((m) => m.id === model)) {
+    return NextResponse.json({ error: `Unknown model: ${model}` }, { status: 400 });
   }
   if (typeof systemPrompt !== "string") {
     return NextResponse.json({ error: "systemPrompt is required" }, { status: 400 });
