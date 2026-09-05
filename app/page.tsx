@@ -392,7 +392,7 @@ interface ResultsModalProps {
   onHoverExport: () => void;
 }
 
-const DEFAULT_COL_WIDTHS = [120, 125, 230, 310, 130, 145, 125, 51];
+const DEFAULT_COL_WIDTHS = [100, 125, 230, 310, 130, 145, 125, 51];
 
 function ResultsModal({
   caseDetail,

@@ -1803,7 +1803,7 @@ button.secondary {
   border-collapse: separate;
   border-spacing: 0;
   font-size: 14px;
-  margin: 14px 0 0;
+  margin: 0;
 }
 
 .modal-table th {
@@ -1865,7 +1865,7 @@ button.secondary {
 }
 
 .cell-scroll {
-  max-height: 90px;
+  max-height: 140px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
