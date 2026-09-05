@@ -13,9 +13,9 @@ conflict, `specs/status.md` wins — it's the up-to-date record.
 ## Stack
 
 Next.js 15 (App Router, Route Handlers) + React 19 + TypeScript (strict) + Supabase (Postgres) +
-OpenRouter (model calls). Package manager is **npm** (`package-lock.json`, matches the
-`Dockerfile`'s `npm ci`) — pnpm was tried briefly and dropped; don't reintroduce a `pnpm-lock.yaml`
-or a `packageManager` field without checking with the user first.
+OpenRouter (model calls). Package manager is **npm** (`package-lock.json`) — pnpm was tried
+briefly and dropped; don't reintroduce a `pnpm-lock.yaml` or a `packageManager` field without
+checking with the user first.
 
 ```
 app/api/**        Route Handlers — the only place OpenRouter/Supabase get called
@@ -71,6 +71,8 @@ extra scrutiny — see `specs/security-boundary.md` and the `code-review` skill.
   two-part "what happened, what's next" sentence, plain language (no HTTP codes/stack
   traces/raw error strings), name the specific agent/role for a per-agent failure, calm tone, never
   a secret. The literal strings live in one centralized map in code, not scattered inline.
+- Git workflow: solo project, no collaborators — commit directly to `main`, no feature-branch/PR
+  convention. This is the intended workflow, not a gap; don't introduce branching ceremony unasked.
 
 ## When you're about to touch something risky
 
@@ -82,10 +84,9 @@ extra scrutiny — see `specs/security-boundary.md` and the `code-review` skill.
 - Any Supabase schema change — check `specs/data-model.md` for the as-built schema (it has already
   diverged from `TRIBUNAL_REQUIREMENTS.md` §7 twice — see migrations 0002/0003) before assuming
   the requirements doc's table definitions are current.
-- Deployment config (`Dockerfile`, `next.config.mjs`, package manager lockfiles) — the live
-  deploy target is **Vercel** (not Netlify, despite what the requirements doc assumes). See
-  `specs/status.md` for why a `Dockerfile` and a stray `package-lock.json` still exist alongside
-  that and what to check before touching either.
+- Deployment config (`next.config.mjs`, package manager lockfiles) — the live deploy target is
+  **Vercel** (not Netlify, despite what the requirements doc assumes). See `specs/status.md` for
+  the npm-vs-pnpm history and why `package-lock.json` is the one lockfile that matters.
 
 For code review on this repo, use the `code-review` skill (`.claude/skills/code-review/`) — it
 scopes the diff, pulls in this file plus `specs/*.md` as context, and delegates the actual

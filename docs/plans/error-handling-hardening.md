@@ -1,5 +1,11 @@
 # Error-handling & race-condition hardening — implementation plan
 
+**Status:** Executed. `lib/openrouter/errors.ts`, migration `0004_add_retry_delay_to_call_logs.sql`,
+and the `retrying` field in `app/api/cases/[id]/route.ts` all match this plan. `specs/error-handling.md`
+is the resulting as-built record — read that for current behavior; this file is kept for the
+original reasoning/race-condition audit. (Moved here from the repo root 2026-09-05 to sit
+alongside its sibling plan, `advocates-judges-avatar-list.md`.)
+
 ## Context
 
 The Tribunal's backend (`lib/orchestrator/run.ts`, `lib/openrouter/client.ts`) currently treats every

@@ -19,6 +19,7 @@ that accumulate as we build."
 | [`security-boundary.md`](./security-boundary.md) | The trust-boundary spec: what's secret, what's deliberately not, and where each rule must be enforced in code. |
 | [`status.md`](./status.md) | Implementation status of every §13 open decision, confirmed divergences from the requirements doc (Vercel as the deploy target, PDF-only dossier uploads), and remaining real gaps (package-manager/lockfile mismatch, etc.) — read this before assuming anything in the requirements doc is still accurate. |
 | [`error-handling.md`](./error-handling.md) | Supersedes `TRIBUNAL_REQUIREMENTS.md` §10.1: the OpenRouter failure-mode → retryable? → user-message classification table, retry/backoff timing, write-resilience fixes, and race-condition audit that `lib/orchestrator/run.ts` was built against. |
+| [`GAPS.md`](./GAPS.md) | Confirmed gaps between a spec/plan and the actual code — some still outstanding, some resolved by direct verification. Read this before assuming a planning doc's status line is current. |
 
 For coding conventions (not requirements), see [`../docs/best-practices.md`](../docs/best-practices.md).
 For code review, see the `code-review` skill (`.claude/skills/code-review/`) and the

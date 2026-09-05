@@ -1,7 +1,12 @@
 # Advocates & Judges avatar list + charge-sheet validation + AI-generated cast
 
-**Status:** Approved, not yet executed. Revised: photo lookup/caching dropped in favor of a plain
-role-colored icon (see §7 and the superseded-approach note at the bottom).
+**Status:** Mostly executed — `lib/caseFields.ts`, `components/Avatar.tsx`, the expanded
+`/api/generate-case` (full 15-field cast), and the read-only cast list in `app/page.tsx` all
+shipped. One piece never landed: the §6 "Replace your draft?" confirmation banner before an upload
+or generation overwrites an existing non-empty draft — `handleUpload`/`handleGenerateCaseClick`
+both overwrite silently today. Tracked as outstanding in `specs/GAPS.md`. Revised: photo
+lookup/caching dropped in favor of a plain role-colored icon (see §7 and the superseded-approach
+note at the bottom).
 
 ## Context
 

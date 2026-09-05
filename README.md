@@ -1,47 +1,47 @@
-# The Tribunal — starter folder for Claude Code
+# The Tribunal
 
-Everything needed to start the build. Open this folder in Claude Code and hand it the prompt at
-the bottom of this file.
+An LLM courtroom-simulation app (ASE26 class project). A charge sheet goes in; 4 advocate agents
+(2 defense, 2 prosecution) argue independently; 3 judge agents each read the case plus all 4
+arguments and render an independent verdict. Every one of the 7 calls is fully audited: exact
+prompt, output, tokens, cost, and duration, frozen at call time.
 
-## What's in here
+## Stack
 
-| File | What it is |
+Next.js 15 (App Router, Route Handlers) + React 19 + TypeScript (strict) + Supabase (Postgres) +
+OpenRouter (model calls). See `CLAUDE.md` for the full architecture, invariants, and working
+conventions.
+
+## Quick start
+
+```bash
+npm install
+cp .env.example .env.local   # then fill in real values — see SETUP.md
+npm run seed                 # seeds agent_configs + the default case from prompts/seed-content.ts
+npm run dev
+```
+
+Other commands: `npm run build` (typecheck + production build), `npm run lint`, `npm run start`
+(serve a production build locally).
+
+## Using it
+
+Open the app, use the pre-loaded seed case as-is or replace it (upload a dossier PDF, generate a
+case with AI, or edit the 7 agent panels by hand), then click **Generate**. See `RUNBOOK.md` for
+the full walkthrough, including where past runs and the per-call audit trail live.
+
+## Where things live
+
+| Doc | What it's for |
 |---|---|
-| `TRIBUNAL_REQUIREMENTS.md` | The full requirements/architecture doc — goal, functional & non-functional requirements, data model (Postgres schema), API design, agent pipeline, security boundary, deployment plan. **Read this first — it's the spec everything else follows.** |
-| `SETUP.md` | Where your OpenRouter (and later, Supabase) keys actually go. Read before touching `.env.example`. |
-| `.env.example` | Template for the env vars the app needs (`OPENROUTER_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DEFAULT_MODEL`). Copy to `.env.local` and fill in real values there — never commit the copy. |
-| `.gitignore` | Already excludes `.env.local` and the usual Node/Next.js build output. |
-| `lib/openrouter/client.ts` | The actual OpenRouter integration — the one file allowed to read `OPENROUTER_API_KEY`. Drop straight into the Next.js app once scaffolded. |
-| `prompts/seed-content.ts` | The professor's real charge sheet + all 7 agent system prompts (4 representatives, 3 judges), transcribed verbatim from `source-material/`. Used to seed the `agent_configs` table and the default case text — see `TRIBUNAL_REQUIREMENTS.md` §3. |
-| `source-material/Tribunal_running_project_info_package.pdf` | The professor's original case-design dossier — the source of truth `seed-content.ts` was transcribed from. |
-| `source-material/Tribunal_Web_App_Assignment.docx` | Your own architecture-essay assignment — the reasoning `TRIBUNAL_REQUIREMENTS.md`'s stack choices (SQL DB, audit trail, parallel calls) are grounded in. |
+| [`CLAUDE.md`](./CLAUDE.md) | Architecture, non-negotiable invariants, and working conventions — read this first if you're changing code. |
+| [`SETUP.md`](./SETUP.md) | Where your OpenRouter/Supabase keys actually go, locally and in production. |
+| [`RUNBOOK.md`](./RUNBOOK.md) | How to actually use a deployed instance — no login, what's pre-loaded, where results and the audit trail show up. |
+| [`specs/README.md`](./specs/README.md) | The as-built spec set (data model, API surface, security boundary, error handling) plus `specs/GAPS.md` for known open items. |
+| [`docs/best-practices.md`](./docs/best-practices.md) | Coding conventions distilled from the codebase as it exists today. |
+| [`docs/plans/`](./docs/plans) | Implementation plans (some executed, some partially — each has a status header). |
+| [`source-material/TRIBUNAL_REQUIREMENTS.md`](./source-material/TRIBUNAL_REQUIREMENTS.md) | The original requirements/architecture doc — historical rationale for *why* things are shaped this way. Where it disagrees with `specs/`, `specs/` wins. |
 
-## Two open decisions before (or while) building
+## Deployment
 
-Both are called out in `TRIBUNAL_REQUIREMENTS.md` — resolve them here or tell Claude Code your
-answer directly when you start:
-
-- **§13.5 Visual design** — currently assumed plain/functional (status-colored panels, no design
-  system), to be revisited later per your own note.
-- **§13.6 Dossier-upload extraction method** — currently defaulted to LLM-only extraction (§4.0);
-  confirm, or ask for the regex-first-with-LLM-fallback hybrid instead.
-
-## Not yet created (part of the build itself)
-
-The Next.js app, the Supabase schema/migration, the 6 API routes, the orchestrator, and the
-Console UI are all specced in `TRIBUNAL_REQUIREMENTS.md` but not yet scaffolded — that's the actual
-build work. `RUNBOOK.md` (the professor-facing "how to run this" note, §13.8) gets written once
-there's a live deployment to describe.
-
-## Suggested first prompt for Claude Code
-
-```
-Read TRIBUNAL_REQUIREMENTS.md in full, then prompts/seed-content.ts. Scaffold a Next.js app per
-the architecture in the requirements doc: the Postgres schema from §7 (as a Supabase migration),
-the API routes from §8, the two-stage parallel agent pipeline from §4.1 (using
-lib/openrouter/client.ts, which already exists — don't rewrite it), and seed agent_configs from
-prompts/seed-content.ts. Follow the resolved decisions in §9 (cost-optimized model pool,
-deepseek/deepseek-v4-flash default) and §13 (repo/env already scaffolded, see SETUP.md for where
-my OpenRouter key goes). Ask me before making a call on anything still marked open in §13 that
-matters for what you're about to build.
-```
+Live on Vercel. `SETUP.md` covers where production env vars go; `RUNBOOK.md` has the live URL
+once this branch is deployed.
