@@ -672,6 +672,10 @@ export default function ConsolePage() {
   // Monotonic counter so a stale PUT /api/agent-config response from an
   // earlier "single model" apply can't clobber a newer selection.
   const modelApplyRef = useRef(0);
+  // The curated pool's default model, captured on load — handleReset uses
+  // this rather than re-deriving it, since `models`/`singleModel` may have
+  // since been changed by the user.
+  const defaultModelRef = useRef<string>("");
 
   const chargeSheetRef = useRef<HTMLElement>(null);
   const pastRunsSectionRef = useRef<HTMLElement>(null);
@@ -737,11 +741,14 @@ export default function ConsolePage() {
         const modelsJson = await modelsRes.json();
         const casesJson = await casesRes.json();
 
+        const defaultModelId = modelsJson.defaultModel ?? modelsJson.models?.[0]?.id ?? "";
+        defaultModelRef.current = defaultModelId;
+
         const nextDrafts = {} as Record<AgentRole, AgentDraft>;
         // Initialize all roles with safe defaults first so drafts[role] is never undefined
         for (const role of ALL_ROLES) {
           nextDrafts[role] = {
-            model: modelsJson.defaultModel ?? modelsJson.models?.[0]?.id ?? "",
+            model: defaultModelId,
             systemPrompt: AGENT_SYSTEM_PROMPTS[role as keyof typeof AGENT_SYSTEM_PROMPTS] ?? "",
             maxTokens: ADVOCATE_ROLES.includes(role) ? 1200 : 1600,
             name: EXAMPLE_NAMES[role],
@@ -759,7 +766,7 @@ export default function ConsolePage() {
         }
         setDrafts(nextDrafts);
         setModels(modelsJson.models ?? []);
-        setSingleModel(modelsJson.defaultModel ?? modelsJson.models?.[0]?.id ?? "");
+        setSingleModel(defaultModelId);
         setPastRuns(casesJson.cases ?? []);
         setHasMoreRuns(casesJson.hasMore ?? false);
         setPastRunsOffset(PAST_RUNS_PAGE_SIZE);
@@ -961,11 +968,19 @@ export default function ConsolePage() {
     setRunError(null);
     setRunTimedOut(false);
     setShowResultsModal(false);
+    setModelMode("single");
+    setSingleModel(defaultModelRef.current);
     setDrafts((prev) => {
       if (!prev) return prev;
       const next = { ...prev };
       for (const role of ALL_ROLES) {
-        next[role] = { ...next[role], systemPrompt: "", name: "" };
+        next[role] = {
+          ...next[role],
+          systemPrompt: "",
+          name: "",
+          model: defaultModelRef.current,
+          maxTokens: ADVOCATE_ROLES.includes(role) ? 1200 : 1600,
+        };
       }
       return next;
     });
@@ -1412,7 +1427,7 @@ export default function ConsolePage() {
                     Load an example case
                   </button>
                 </div>
-                <button type="button" className="clear-btn btn-bubble-hover" disabled={!caseText.trim()} onClick={() => setCaseText("")}>Clear</button>
+                <button type="button" className="clear-btn btn-bubble-hover" disabled={!caseText.trim()} onClick={handleReset}>Clear</button>
               </div>
               {generateCaseError && <div className="error-banner" style={{ marginTop: 8 }}>{generateCaseError}</div>}
 
