@@ -1417,17 +1417,16 @@ export default function ConsolePage() {
                 }}
                 rows={10}
               />
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 6 }}>
-                <button type="button" className="clear-btn" disabled={!caseText.trim()} onClick={() => setCaseText("")}>Clear</button>
-              </div>
-
-              <div className="generate-case-row">
-                <button type="button" className="btn2" disabled={generatingCase} onClick={handleGenerateCaseClick}>
-                  <span className="spn2">{generatingCase ? "Generating…" : "Generate case with AI"}</span>
-                </button>
-                <button type="button" className="btn2" onClick={handleLoadExampleClick}>
-                  <span className="spn2">Load an example case</span>
-                </button>
+              <div className="generate-case-row" style={{ justifyContent: "space-between" }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="clear-btn btn-bubble-hover" disabled={generatingCase} onClick={handleGenerateCaseClick}>
+                    {generatingCase ? "Generating…" : "Generate case with AI"}
+                  </button>
+                  <button type="button" className="clear-btn btn-bubble-hover" onClick={handleLoadExampleClick}>
+                    Load an example case
+                  </button>
+                </div>
+                <button type="button" className="clear-btn btn-bubble-hover" disabled={!caseText.trim()} onClick={() => setCaseText("")}>Clear</button>
               </div>
               {pendingReplaceConfirm && (
                 <div className="replace-draft-banner">
