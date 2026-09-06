@@ -125,9 +125,14 @@ export function caseGenerationMessage(kind: CaseGenerationFailureKind): string {
   }
 }
 
-/** The "single model for all" bulk apply failed to save for one role's config. */
-export function modelApplyFailedMessage(roleLabel: string): string {
-  return `Couldn't apply the new model to ${roleLabel}, its previous model is still in effect there. Try again.`;
+/** The "single model for all" bulk apply failed to save for one or more roles' configs. */
+export function modelApplyFailedMessage(roleLabels: string[]): string {
+  const list =
+    roleLabels.length <= 1
+      ? roleLabels.join("")
+      : `${roleLabels.slice(0, -1).join(", ")} and ${roleLabels[roleLabels.length - 1]}`;
+  const pronoun = roleLabels.length > 1 ? "their previous models are" : "its previous model is";
+  return `Couldn't apply the new model to ${list}, ${pronoun} still in effect there. Try again.`;
 }
 
 /** A single row's model/max-tokens/name edit (PUT /api/agent-config/:role) failed to save. */

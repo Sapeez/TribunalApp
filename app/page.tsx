@@ -907,41 +907,73 @@ export default function ConsolePage() {
     // of 7 PUTs lands, a late response here must not clobber the newer
     // selection's state.
     const requestId = ++modelApplyRef.current;
+    if (!drafts) return;
+
+    // Snapshot what each role actually had before this optimistic update, so
+    // a failed save can be rolled back instead of leaving the UI claiming
+    // "its previous model is still in effect" while state disagrees.
+    const previousModels = {} as Record<AgentRole, string>;
+    for (const role of ALL_ROLES) previousModels[role] = drafts[role].model;
 
     setModelMode("single");
     setSingleModel(modelId);
-    if (!drafts) return;
     for (const role of ALL_ROLES) {
       updateDraft(role, { model: modelId });
     }
-    try {
-      await Promise.all(
-        ALL_ROLES.map(async (role) => {
-          const draft = drafts[role];
+
+    const results = await Promise.all(
+      ALL_ROLES.map(async (role) => {
+        const draft = drafts[role];
+        try {
           const res = await fetch(`/api/agent-config/${role}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ model: modelId, systemPrompt: draft.systemPrompt, maxTokens: draft.maxTokens, name: draft.name }),
           });
-          if (!res.ok) throw new Error(roleLabel(role, draft.name));
+          if (!res.ok) return { role, ok: false as const };
           const body = await res.json();
-          if (requestId !== modelApplyRef.current) return; // a newer call superseded this one
-          const saved: AgentDraft = {
-            model: body.agent.model,
-            systemPrompt: body.agent.system_prompt,
-            maxTokens: body.agent.max_tokens,
-            name: body.agent.name ?? "",
-          };
-          setDrafts((prev) => (prev ? { ...prev, [role]: saved } : prev));
-        })
-      );
-    } catch (err) {
-      if (requestId === modelApplyRef.current) {
-        const failedRoleLabel = err instanceof Error ? err.message : String(err);
-        const id = addToast({ type: "error", message: modelApplyFailedMessage(failedRoleLabel) });
-        setTimeout(() => removeToast(id), 8000);
+          return { role, ok: true as const, agent: body.agent };
+        } catch {
+          return { role, ok: false as const };
+        }
+      })
+    );
+
+    if (requestId !== modelApplyRef.current) return; // a newer call superseded this one
+
+    const finalModels = { ...previousModels };
+    const failedRoles: AgentRole[] = [];
+    for (const result of results) {
+      if (result.ok) {
+        finalModels[result.role] = result.agent.model;
+        const saved: AgentDraft = {
+          model: result.agent.model,
+          systemPrompt: result.agent.system_prompt,
+          maxTokens: result.agent.max_tokens,
+          name: result.agent.name ?? "",
+        };
+        setDrafts((prev) => (prev ? { ...prev, [result.role]: saved } : prev));
+      } else {
+        failedRoles.push(result.role);
+        updateDraft(result.role, { model: previousModels[result.role] });
       }
     }
+
+    if (failedRoles.length === 0) return;
+
+    // Roles may no longer share one model (a partial failure, or every role
+    // rolling back to a shared prior model) — reflect that honestly instead
+    // of leaving "single" mode checked over a mixed result.
+    const allSame = ALL_ROLES.every((role) => finalModels[role] === finalModels[ALL_ROLES[0]]);
+    if (allSame) {
+      setSingleModel(finalModels[ALL_ROLES[0]]);
+    } else {
+      setModelMode("different");
+    }
+
+    const labels = failedRoles.map((role) => roleLabel(role, drafts[role]?.name));
+    const id = addToast({ type: "error", message: modelApplyFailedMessage(labels) });
+    setTimeout(() => removeToast(id), 8000);
   }
 
   const belowMinTokensRoles = useMemo(() => {
