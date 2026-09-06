@@ -4,8 +4,7 @@ The one-page "how to use it" note called for in `TRIBUNAL_REQUIREMENTS.md` §13.
 deployment exists.
 
 ## Live URL
-
-**TODO: paste the finalized production Vercel URL here once the branch is deployed.**
+(https://tribunal-app.vercel.app/)
 
 ## No login needed
 
