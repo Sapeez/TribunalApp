@@ -65,6 +65,39 @@ Accepted type is PDF only (5 MB cap) — `.docx` support was intentionally dropp
 `specs/status.md`. A rejected upload leaves existing form fields untouched — never a partial
 silent overwrite.
 
+## Error responses never leak internal detail
+
+Every Route Handler that queries Supabase logs the real Postgrest error server-side
+(`console.error`) and returns a generic, centralized message from `lib/toastMessages.ts`
+(`DB_READ_FAILED` / `DB_WRITE_FAILED` / `CASE_NOT_FOUND`) — never `error.message` itself. A raw
+Postgrest error can name tables, columns, or constraints (e.g. "JSON object requested, multiple
+(or no) rows returned"), which is internal schema detail, not something the trust boundary should
+expose. This is the same rule `docs/toast-message-copy.md` already states for agent-failure
+copy ("no HTTP codes, internal field names, stack traces, or raw error strings") — it also governs
+plain Supabase-query error branches, not just the OpenRouter/orchestrator failure paths.
+Enforced today in `GET /api/cases`, `GET /api/cases/:id`, `GET /api/agent-config`, and
+`PUT /api/agent-config/:role`. A new route with a Supabase error branch must follow the same
+pattern — add a message to `lib/toastMessages.ts` rather than forwarding `error.message`.
+
+## Deliberately out of scope (don't re-flag these as gaps)
+
+A generic security checklist (auth, CSRF, rate limiting, RLS policies with real rules, JWT/session
+handling) doesn't map cleanly onto this app. Documented here so a future review doesn't propose
+reintroducing them without reading `CLAUDE.md` invariant #7 / `TRIBUNAL_REQUIREMENTS.md` §14 first:
+
+- **No auth/session/CSRF.** There's no login, no session cookie, nothing state-changing that rides
+  on ambient cookie-based auth — CSRF tokens defend against a threat model this app doesn't have.
+  Single-user by design (§14); don't add login scaffolding unasked.
+- **RLS policies are defense-in-depth only, not access control.** All 5 tables have RLS enabled
+  with zero policies — the service-role key bypasses RLS anyway (see `specs/data-model.md`), and
+  the browser never holds a key that could exploit a missing policy. Adding real per-row policies
+  wouldn't change what's reachable from the browser.
+- **No rate limiting on any endpoint.** Real gap for cost-control (an unauthenticated caller could
+  script repeated `POST /api/run` calls and run up OpenRouter spend), but not implemented — it
+  would need new infra (e.g. Upstash/Vercel KV) this repo doesn't currently depend on. Revisit with
+  the user before adding that dependency rather than bolting on an ad hoc in-memory limiter that
+  doesn't survive Vercel's serverless cold starts.
+
 ## Prompt injection hardening
 
 Three places where attacker-influenced text flows into a model call — the extracted document,

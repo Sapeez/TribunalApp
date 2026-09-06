@@ -242,6 +242,19 @@ interface CaseSummary {
 
 type PastRunsFilter = "all" | "complete" | "partial-failure" | "failed";
 
+// Keeps the first occurrence of each id — used to prepend a freshly-completed
+// case ahead of a possibly-stale copy already in the list.
+function dedupeCasesById(cases: CaseSummary[]): CaseSummary[] {
+  const seen = new Set<string>();
+  const result: CaseSummary[] = [];
+  for (const c of cases) {
+    if (seen.has(c.id)) continue;
+    seen.add(c.id);
+    result.push(c);
+  }
+  return result;
+}
+
 interface RawAdvocateOutputRow {
   role: string;
   model: string;
@@ -767,7 +780,7 @@ export default function ConsolePage() {
         setDrafts(nextDrafts);
         setModels(modelsJson.models ?? []);
         setSingleModel(defaultModelId);
-        setPastRuns(casesJson.cases ?? []);
+        setPastRuns(dedupeCasesById(casesJson.cases ?? []));
         setHasMoreRuns(casesJson.hasMore ?? false);
         setPastRunsOffset(PAST_RUNS_PAGE_SIZE);
       } catch (err) {
@@ -792,7 +805,7 @@ export default function ConsolePage() {
       const res = await fetch(`/api/cases?limit=${PAST_RUNS_PAGE_SIZE}&offset=${pastRunsOffset}`);
       if (!res.ok) return;
       const json = await res.json();
-      setPastRuns((prev) => [...prev, ...(json.cases ?? [])]);
+      setPastRuns((prev) => dedupeCasesById([...prev, ...(json.cases ?? [])]));
       setHasMoreRuns(json.hasMore ?? false);
       setPastRunsOffset((prev) => prev + PAST_RUNS_PAGE_SIZE);
     } finally {
@@ -1121,8 +1134,7 @@ export default function ConsolePage() {
           }
 
           setPastRuns((prev) => {
-            if (prev.some((r) => r.id === detail.case.id)) return prev;
-            return [
+            return dedupeCasesById([
               {
                 id: detail.case.id,
                 case_text: detail.case.case_text,
@@ -1133,7 +1145,7 @@ export default function ConsolePage() {
                 total_time_ms: detail.case.total_time_ms,
               },
               ...prev,
-            ];
+            ]);
           });
         }
       } catch {

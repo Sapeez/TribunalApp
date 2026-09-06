@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { ALL_ROLES, MAX_ATTEMPTS_PER_CALL, type AgentRole } from "@/lib/constants";
-import { NON_RETRYABLE_CODES, type ErrorCode } from "@/lib/toastMessages";
+import { CASE_NOT_FOUND, DB_READ_FAILED, NON_RETRYABLE_CODES, type ErrorCode } from "@/lib/toastMessages";
 
 export const runtime = "nodejs";
 
@@ -24,10 +24,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   ]);
 
   if (caseError) {
-    return NextResponse.json({ error: caseError.message }, { status: 404 });
+    // Never echo the raw Postgrest error to the browser (specs/security-boundary.md) —
+    // e.g. "JSON object requested, multiple (or no) rows returned" for a bad id.
+    console.error(`[GET /api/cases/${id}] case lookup failed:`, caseError.message);
+    return NextResponse.json({ error: CASE_NOT_FOUND }, { status: 404 });
   }
   if (advError || verError || logsError) {
-    return NextResponse.json({ error: (advError ?? verError ?? logsError)?.message }, { status: 500 });
+    console.error(`[GET /api/cases/${id}] related query failed:`, (advError ?? verError ?? logsError)?.message);
+    return NextResponse.json({ error: DB_READ_FAILED }, { status: 500 });
   }
 
   // Aggregate total duration per role (summing all retry attempts), and the

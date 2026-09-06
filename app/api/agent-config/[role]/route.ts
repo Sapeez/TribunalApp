@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { ALL_ROLES, CURATED_MODELS, maxTokensCapFor, minTokensFloorFor, type AgentRole } from "@/lib/constants";
+import { DB_WRITE_FAILED } from "@/lib/toastMessages";
 
 export const runtime = "nodejs";
 
@@ -62,7 +63,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Never echo the raw Postgrest error to the browser (specs/security-boundary.md).
+    console.error(`[PUT /api/agent-config/${role}] update failed:`, error.message);
+    return NextResponse.json({ error: DB_WRITE_FAILED }, { status: 500 });
   }
 
   return NextResponse.json({ agent: data });

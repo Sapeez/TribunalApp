@@ -88,6 +88,20 @@ export function agentFailedFallback(roleLabel: string): string {
 export const DB_UNREACHABLE_AT_START =
   "Couldn't start the run: the database isn't reachable right now. Try again in a moment.";
 
+// Generic read/write failure copy for routes that only proxy a Supabase
+// query (GET /api/cases, GET /api/cases/:id, GET /api/agent-config, PUT
+// /api/agent-config/:role). Per specs/security-boundary.md's "no raw
+// internal error text" rule, the real Postgrest error is logged server-side
+// (console.error) only — never returned in the response body, since it can
+// include table/column names or query internals.
+export const DB_READ_FAILED =
+  "Couldn't load that data: the database isn't reachable right now. Try again in a moment.";
+
+export const DB_WRITE_FAILED =
+  "Couldn't save that change: the database isn't reachable right now. Try again in a moment.";
+
+export const CASE_NOT_FOUND = "That case couldn't be found.";
+
 export const RUN_ALREADY_ACTIVE = "This case is already running.";
 
 export const PDF_READ_FAILED =

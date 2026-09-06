@@ -53,6 +53,17 @@ Not gaps — decisions the user has made explicitly that supersede `TRIBUNAL_REQ
    example; the shipped cap (`lib/constants.ts`) is `1300` advocate / `2000` judge. Consistent with
    §11 being explicitly "adjustable," not a regression — noted only so it isn't mistaken for one.
 
+## Known accepted risks
+
+- **`postcss` high/moderate advisories (2026-09-06), via `next`'s transitive dependency.**
+  `npm audit` reports two PostCSS advisories (XSS via unescaped `</style>` in stringify output;
+  arbitrary file read via attacker-controlled `sourceMappingURL`). `npm audit fix --force` would
+  fix it but bumps to `next@16`, a breaking major version change. Accepted as-is: both advisories
+  require stringifying/reading attacker-controlled CSS or source maps at runtime, and this app
+  never does either (no user-supplied CSS, no source maps served to end users) — it's a
+  build-tool-only exposure, not a live attack surface here. Revisit as part of a deliberate Next 16
+  upgrade later, not bundled into an unrelated change just to silence the advisory.
+
 ## What to do when you find a new gap like these
 
 Add a row here, don't silently "fix" the doc to match the code or the code to match the doc —

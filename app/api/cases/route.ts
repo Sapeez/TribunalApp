@@ -2,6 +2,7 @@
 // Supports ?limit=N&offset=M for pagination (defaults: limit=10, offset=0).
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { DB_READ_FAILED } from "@/lib/toastMessages";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,10 @@ export async function GET(request: NextRequest) {
     .range(offset, offset + limit); // range is inclusive on both ends, so +limit gives limit+1 rows
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Never echo the raw Postgrest error to the browser (specs/security-boundary.md) —
+    // it can include table/column names or query internals.
+    console.error("[GET /api/cases] query failed:", error.message);
+    return NextResponse.json({ error: DB_READ_FAILED }, { status: 500 });
   }
 
   const hasMore = (data?.length ?? 0) > limit;
