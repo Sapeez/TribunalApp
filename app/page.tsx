@@ -779,7 +779,22 @@ export default function ConsolePage() {
         }
         setDrafts(nextDrafts);
         setModels(modelsJson.models ?? []);
-        setSingleModel(defaultModelId);
+
+        // Derive mode from what was actually persisted: if every role's
+        // saved model agrees, treat it as "single" (and use that shared
+        // value, not the pool default) so reopening the app doesn't drift
+        // the single-model selector away from what generate will actually
+        // use. Otherwise fall back to "different" so the per-role dropdowns
+        // (which do disagree) stay editable and reflect reality.
+        const loadedModels = ALL_ROLES.map((role) => nextDrafts[role].model);
+        const allSameModel = loadedModels.length > 0 && loadedModels.every((m) => m === loadedModels[0]);
+        if (allSameModel && loadedModels[0]) {
+          setModelMode("single");
+          setSingleModel(loadedModels[0]);
+        } else {
+          setModelMode("different");
+          setSingleModel(defaultModelId);
+        }
         setPastRuns(dedupeCasesById(casesJson.cases ?? []));
         setHasMoreRuns(casesJson.hasMore ?? false);
         setPastRunsOffset(PAST_RUNS_PAGE_SIZE);
@@ -1028,7 +1043,11 @@ export default function ConsolePage() {
 
     const agents = ALL_ROLES.map((role) => {
       const draft = drafts[role];
-      return { role, model: draft.model, systemPrompt: draft.systemPrompt, maxTokens: draft.maxTokens, name: draft.name };
+      // In "single" mode the dropdown is disabled and may not reflect the
+      // latest selection (e.g. right after a fresh page load) — the single-
+      // model selector is the source of truth, not the per-role draft.
+      const model = modelMode === "single" ? singleModel : draft.model;
+      return { role, model, systemPrompt: draft.systemPrompt, maxTokens: draft.maxTokens, name: draft.name };
     });
 
     try {
